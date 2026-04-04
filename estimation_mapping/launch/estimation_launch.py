@@ -6,7 +6,8 @@ Launches SLAM Toolbox and EKF for mapping and state estimation
 
 import os
 from launch import LaunchDescription
-from launch.actions import LogInfo, TimerAction
+from launch.actions import IncludeLaunchDescription, LogInfo, TimerAction
+from launch.launch_description_sources import PythonLaunchDescriptionSource
 from ament_index_python.packages import get_package_share_directory
 from launch_ros.actions import Node
 
@@ -14,7 +15,11 @@ from launch_ros.actions import Node
 def generate_launch_description():
     package_share_dir = get_package_share_directory('estimation_mapping')
     slam_config = os.path.join(package_share_dir, 'config', 'mapper_params.yaml')
-    # ekf_config = os.path.join(package_share_dir, 'config', 'ekf.yaml')
+    rplidar_launch = os.path.join(
+        get_package_share_directory('rplidar_ros'),
+        'launch',
+        'rplidar_a1_launch.py',
+    )
     urdf_file = os.path.join(package_share_dir, 'urdf', 'simple.urdf')
 
     with open(urdf_file, 'r') as f:
@@ -28,6 +33,26 @@ def generate_launch_description():
         parameters=[{
             'robot_description': robot_description_content
         }],
+    )
+
+    static_tf_node = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='base_link_to_laser',
+        arguments=[
+            '--x', '-0.0251',
+            '--y', '0.0',
+            '--z', '0.1683',
+            '--yaw', '0',
+            '--pitch', '0',
+            '--roll', '0',
+            '--frame-id', 'base_link',
+            '--child-frame-id', 'laser',
+        ]
+    )
+
+    rplidar_launch_action = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(rplidar_launch)
     )
 
     # SLAM Toolbox node
@@ -48,26 +73,20 @@ def generate_launch_description():
         ]
     )
 
-    # EKF node for sensor fusion
-    # ekf_node = Node(
-    #     package='robot_localization',
-    #     executable='ekf_node',
-    #     name='ekf_filter_node',
-    #     output='screen',
-    #     parameters=[ekf_config],
-    # )
-
     log_info = LogInfo(
         msg=[
             'Launching Estimation subsystem:\n',
+            '  URDF: ', urdf_file, '\n',
+            '  Static TF: base_link -> laser\n',
+            '  RPLidar launch: ', rplidar_launch, '\n',
             '  SLAM config: ', slam_config, '\n',
-            # '  EKF config: ', ekf_config, '\n',
         ]
     )
 
     return LaunchDescription([
         log_info,
-        delayed_slam,
-        # ekf_node,
         robot_state_publisher_node,
+        static_tf_node,
+        rplidar_launch_action,
+        delayed_slam,
     ])
