@@ -35,22 +35,6 @@ def generate_launch_description():
         }],
     )
 
-    static_tf_node = Node(
-        package='tf2_ros',
-        executable='static_transform_publisher',
-        name='base_link_to_laser',
-        arguments=[
-            '--x', '-0.0251',
-            '--y', '0.0',
-            '--z', '0.1683',
-            '--yaw', '0',
-            '--pitch', '0',
-            '--roll', '0',
-            '--frame-id', 'base_link',
-            '--child-frame-id', 'laser',
-        ]
-    )
-
     rplidar_launch_action = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(rplidar_launch)
     )
@@ -77,7 +61,6 @@ def generate_launch_description():
         msg=[
             'Launching Estimation subsystem:\n',
             '  URDF: ', urdf_file, '\n',
-            '  Static TF: base_link -> laser\n',
             '  RPLidar launch: ', rplidar_launch, '\n',
             '  SLAM config: ', slam_config, '\n',
         ]
@@ -86,7 +69,6 @@ def generate_launch_description():
     return LaunchDescription([
         log_info,
         robot_state_publisher_node,
-        static_tf_node,
         rplidar_launch_action,
         delayed_slam,
     ])
