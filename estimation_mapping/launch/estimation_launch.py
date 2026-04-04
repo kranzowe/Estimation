@@ -15,6 +15,20 @@ def generate_launch_description():
     package_share_dir = get_package_share_directory('estimation_mapping')
     slam_config = os.path.join(package_share_dir, 'config', 'mapper_params.yaml')
     ekf_config = os.path.join(package_share_dir, 'config', 'ekf.yaml')
+    urdf_file = os.path.join(package_share_dir, 'urdf', 'simple.urdf')
+
+    with open(urdf_file, 'r') as f:
+        robot_description_content = f.read()
+
+    robot_state_publisher_node = Node(
+        package='robot_state_publisher',
+        executable='robot_state_publisher',
+        name='robot_state_publisher',
+        output='screen',
+        parameters=[{
+            'robot_description': robot_description_content
+        }],
+    )
 
     # SLAM Toolbox node
     slam_toolbox_node = Node(
@@ -55,4 +69,5 @@ def generate_launch_description():
         log_info,
         delayed_slam,
         ekf_node,
+        robot_state_publisher_node,
     ])
