@@ -14,7 +14,7 @@ from launch_ros.actions import Node
 def generate_launch_description():
     package_share_dir = get_package_share_directory('estimation_mapping')
     slam_config = os.path.join(package_share_dir, 'config', 'mapper_params.yaml')
-    ekf_config = os.path.join(package_share_dir, 'config', 'ekf.yaml')
+    # ekf_config = os.path.join(package_share_dir, 'config', 'ekf.yaml')
     urdf_file = os.path.join(package_share_dir, 'urdf', 'simple.urdf')
 
     with open(urdf_file, 'r') as f:
@@ -49,25 +49,25 @@ def generate_launch_description():
     )
 
     # EKF node for sensor fusion
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
-        output='screen',
-        parameters=[ekf_config],
-    )
+    # ekf_node = Node(
+    #     package='robot_localization',
+    #     executable='ekf_node',
+    #     name='ekf_filter_node',
+    #     output='screen',
+    #     parameters=[ekf_config],
+    # )
 
     log_info = LogInfo(
         msg=[
             'Launching Estimation subsystem:\n',
             '  SLAM config: ', slam_config, '\n',
-            '  EKF config: ', ekf_config, '\n',
+            # '  EKF config: ', ekf_config, '\n',
         ]
     )
 
     return LaunchDescription([
         log_info,
         delayed_slam,
-        ekf_node,
+        # ekf_node,
         robot_state_publisher_node,
     ])
