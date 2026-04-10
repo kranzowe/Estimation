@@ -37,9 +37,7 @@ def generate_launch_description():
 
     rplidar_launch_action = IncludeLaunchDescription(
     PythonLaunchDescriptionSource(rplidar_launch),
-    launch_arguments = {
-        'serial_port':'/dev/ttyUSB1'
-        }.items()
+
     )
     
 
