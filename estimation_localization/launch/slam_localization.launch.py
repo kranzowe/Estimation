@@ -30,9 +30,20 @@ def generate_launch_description():
     )
 
     rplidar_launch_action = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(rplidar_launch)
+    PythonLaunchDescriptionSource(rplidar_launch),
+    launch_arguments = {
+        'serial_port':'/dev/ttyUSB1'
+        }.items()
     )
 
+    odom_tf_node = Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='odom_to_base_link',
+    arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link']
+    )
+    
+    
     slam_node = Node(
         package='slam_toolbox',
         executable='localization_slam_toolbox_node',
@@ -44,5 +55,6 @@ def generate_launch_description():
     return LaunchDescription([
         robot_state_publisher_node,
         rplidar_launch_action,
+        odom_tf_node,
         slam_node
     ])

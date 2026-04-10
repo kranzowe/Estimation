@@ -36,9 +36,20 @@ def generate_launch_description():
     )
 
     rplidar_launch_action = IncludeLaunchDescription(
-    PythonLaunchDescriptionSource(rplidar_launch)
+    PythonLaunchDescriptionSource(rplidar_launch),
+    launch_arguments = {
+        'serial_port':'/dev/ttyUSB1'
+        }.items()
     )
+    
 
+    odom_tf_node = Node(
+    package='tf2_ros',
+    executable='static_transform_publisher',
+    name='odom_to_base_link',
+    arguments=['0', '0', '0', '0', '0', '0', 'odom', 'base_link']
+    
+    )
     map_server_node = Node(
         package='nav2_map_server',
         executable='map_server',
@@ -77,4 +88,5 @@ def generate_launch_description():
         amcl_node,
         lifecycle_node,
         rplidar_launch_action,
+        odom_tf_node
     ])
