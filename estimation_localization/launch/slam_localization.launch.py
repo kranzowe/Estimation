@@ -11,7 +11,6 @@ def generate_launch_description():
     mapping_pkg = get_package_share_directory('estimation_mapping')
 
     slam_params = os.path.join(localization_pkg, 'config', 'slam_localization.yaml')
-    ekf_params = os.path.join(localization_pkg, 'config', 'ekf.yaml')
     urdf_file = os.path.join(mapping_pkg, 'urdf', 'simple.urdf')
     rplidar_launch = os.path.join(
         get_package_share_directory('rplidar_ros'),
@@ -34,16 +33,15 @@ def generate_launch_description():
         PythonLaunchDescriptionSource(rplidar_launch),
     )
 
-    # EKF fuses /ol_rates velocities → integrates → publishes odom→base_link TF for slam_toolbox
-    ekf_node = Node(
-        package='robot_localization',
-        executable='ekf_node',
-        name='ekf_filter_node',
+    # Integrates /ol_rates velocities → publishes /odom and odom→base_link TF for slam_toolbox
+    odom_tf_node = Node(
+        package='estimation_localization',
+        executable='odom_tf_publisher',
+        name='odom_tf_publisher',
         output='screen',
-        parameters=[ekf_params]
     )
 
-    # Delay SLAM startup so EKF has time to start publishing the odom TF first
+    # Delay SLAM startup so odom TF is being published first
     slam_node = TimerAction(
         period=3.0,
         actions=[Node(
@@ -58,6 +56,6 @@ def generate_launch_description():
     return LaunchDescription([
         robot_state_publisher_node,
         rplidar_launch_action,
-        ekf_node,
+        odom_tf_node,
         slam_node,
     ])
