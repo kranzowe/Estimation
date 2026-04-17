@@ -15,29 +15,13 @@ ekf_filter_node:
     base_link_frame: base_link  # Physical center of the robot
     world_frame: odom           # Local loop closure frame
 
-    # --- 1. Odometry Input (From your rover_node's cmd_vel logic) ---
-    # We use this to get a rough estimate of X and Y movement
-    odom0: /odom
+    # Velocity input from rover_node's open-loop rate estimator
+    # ol_rates publishes Twist: linear.x = forward velocity, angular.z = yaw rate
+    twist0: /ol_rates
     # Configuration: [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
-    odom0_config: [true,  true,  false,
-                   false, false, false,
-                   true,  true,  false,
-                   false, false, true,
-                   false, false, false]
-    odom0_relative: false
-
-    # --- 2. IMU Input (From Pixhawk via MAVLink) ---
-    # This is critical for accurate heading/turning
-    imu0: /imu/data
-    # Configuration: [x, y, z, roll, pitch, yaw, vx, vy, vz, vroll, vpitch, vyaw, ax, ay, az]
-    imu0_config: [false, false, false,
-                  false, false, true,  # Use Absolute Yaw (Heading)
-                  false, false, false,
-                  false, false, true,  # Use Angular Velocity Z
-                  true,  false, false] # Use Linear Acceleration X
-    imu0_nodelay: true
-    imu0_relative: false
-
-    # --- Process Noise Covariance (Optional Tuning) ---
-    # If the map still drifts, we can increase the uncertainty of the Odom X/Y
-    # to force EKF to rely more on the IMU and SLAM's scan matching.
+    twist0_config: [false, false, false,
+                    false, false, false,
+                    true,  false, false,
+                    false, false, true,
+                    false, false, false]
+    twist0_relative: false
