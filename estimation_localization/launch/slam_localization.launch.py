@@ -11,7 +11,7 @@ def generate_launch_description():
     mapping_pkg = get_package_share_directory('estimation_mapping')
 
     slam_params = os.path.join(localization_pkg, 'config', 'slam_localization.yaml')
-    ekf_params = os.path.join(mapping_pkg, 'config', 'ekf.yaml')
+    ekf_params = os.path.join(localization_pkg, 'config', 'ekf.yaml')
     urdf_file = os.path.join(mapping_pkg, 'urdf', 'simple.urdf')
     rplidar_launch = os.path.join(
         get_package_share_directory('rplidar_ros'),
