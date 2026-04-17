@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
 from geometry_msgs.msg import Twist, TransformStamped
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
@@ -17,9 +18,15 @@ class OdomTFPublisher(Node):
         self.yaw = 0.0
         self.last_time = self.get_clock().now()
 
+        sensor_qos = QoSProfile(
+            reliability=ReliabilityPolicy.BEST_EFFORT,
+            durability=DurabilityPolicy.VOLATILE,
+            depth=10
+        )
+
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
-        self.create_subscription(Twist, '/ol_rates', self.ol_rates_cb, 10)
+        self.create_subscription(Twist, '/ol_rates', self.ol_rates_cb, sensor_qos)
 
     def ol_rates_cb(self, msg):
         now = self.get_clock().now()
