@@ -12,7 +12,7 @@ def generate_launch_description():
     localization_pkg = get_package_share_directory('estimation_localization')
     mapping_pkg = get_package_share_directory('estimation_mapping')
 
-    default_map = os.path.join(localization_pkg, 'maps', 'lab.yaml')
+    default_map = os.path.join(localization_pkg, 'maps', 'Best_map.yaml')
     amcl_params = os.path.join(localization_pkg, 'config', 'amcl.yaml')
     lifecycle_params = os.path.join(localization_pkg, 'config', 'lifecycle_localization.yaml')
     urdf_file = os.path.join(mapping_pkg, 'urdf', 'simple.urdf')
