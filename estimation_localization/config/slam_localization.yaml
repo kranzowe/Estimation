@@ -18,7 +18,8 @@ slam_toolbox:
 
     # Depending on your workflow, this may be used directly,
     # or you may deserialize the posegraph with a service call after startup.
-    map_file_name: /home/hollis/cu/ClankerCollectiveDev/src/Estimation/estimation_localization/maps/Cool_map
+
+    map_file_name: /home/clanker/ClankerCollective/src/Estimation/estimation_localization/maps/oh_my
     map_start_pose: [0.0, 0.0, 0.0]
 
     debug_logging: false
