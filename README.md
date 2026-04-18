@@ -28,7 +28,10 @@ You need to map because loading the map into slam toolbox doesn't work (this als
 
 4/18 notes -> make sure you pull controls and robo rover
     -> if you have pixhawk connection issues, look at the readme...
-    
+    -> Estimation -> Mapping
+    -> Controls -> tf2-pose
+    -> RoboRover -> manual-test
+
 
 # Estimation
 Estimation subsystem for ClankerCollective.
