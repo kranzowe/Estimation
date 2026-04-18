@@ -30,7 +30,8 @@ You need to map because loading the map into slam toolbox doesn't work (this als
     -> if you have pixhawk connection issues, look at the readme...
     -> Estimation -> Mapping
     -> Controls -> tf2-pose
-    -> RoboRover -> manual-test
+    -> RoboRover -> resolve-conflicts (If you are feeling ambitious you can run manual test - I merged some code in that Kelvin added, though the merge is completely untested)
+        -> could be best to leave this alone... i dunno
 
 
 # Estimation
