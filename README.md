@@ -26,6 +26,13 @@ Preface... this is all going to work much much better if you run this on a local
 
 You need to map because loading the map into slam toolbox doesn't work (this also prohibits pure localization mode)
 
+4/18 notes -> make sure you pull controls and robo rover
+    -> if you have pixhawk connection issues, look at the readme...
+    -> Estimation -> Mapping
+    -> Controls -> tf2-pose
+    -> RoboRover -> manual-test
+
+
 # Estimation
 Estimation subsystem for ClankerCollective.
 
