@@ -39,6 +39,7 @@ You need to map because loading the map into slam toolbox doesn't work (this als
         -> I was also hesistant to fix it to tie it to the commanded velocity (that would be the next thing I try)
         -> eneded up tying to ol_rates -> effectively should fix it to zero in not pwm mode (this would work in pwm mode but don't to that cuase slam doesn't like it :( )
 
+    DISCLAIMER -> I patched the pure pursuit node late last night and never tested on the rover -> from the simulations I did remotely, it doesn't crash and collects transforms, however, I expect on the real system you may encounter more challenges. Sry ig
 
 GOOD LUCK
 
