@@ -22,7 +22,8 @@ Preface... this is all going to work much much better if you run this on a local
 5. now you may echo the pose ros2 run tf2_ros tf2 echo map base_link
     a. The pose of the robot is a tf2 frame not a topic
 6. kill the wasd node...
-    a. now you may run the controller (you need to figure it out from here...)
+    a. now you may run the controller (ros2 run clanker_controls pursuit_node.py)
+    b. you need to figure it out from here...
 
 You need to map because loading the map into slam toolbox doesn't work (this also prohibits pure localization mode)
 
@@ -32,6 +33,14 @@ You need to map because loading the map into slam toolbox doesn't work (this als
     -> Controls -> tf2-pose
     -> RoboRover -> resolve-conflicts (If you are feeling ambitious you can run manual test - I merged some code in that Kelvin added, though the merge is completely untested)
         -> could be best to leave this alone... i dunno
+
+    Control culprit #1 -> look how I'm setting the current velocity estimate in control_cb. tf doesn't handle state derivatives so I need to source that from other places.
+        -> I was really hesitant to take a numerical derivative due to the jumpy nature of the slam estimate (I you do, I'd expect a lot of logic would be required to protect it)
+        -> I was also hesistant to fix it to tie it to the commanded velocity (that would be the next thing I try)
+        -> eneded up tying to ol_rates -> effectively should fix it to zero in not pwm mode (this would work in pwm mode but don't to that cuase slam doesn't like it :( )
+
+
+GOOD LUCK
 
 
 # Estimation
