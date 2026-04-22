@@ -18,6 +18,7 @@ from ament_index_python import get_package_share_directory
 from dynamics import solve_dyn, process_noise
 
 OCCUPIED_THRESHHOLD = 0.9
+MEGA_UNCERTAINTY = 1000
 
 class ParticleFilterNode(Node):
 
@@ -39,11 +40,24 @@ class ParticleFilterNode(Node):
         self.declare_parameter("map_filename", "Best_map")
         self.map_name = self.get_parameter("map_filename").value
 
+        #must be less than the range of the lidar
+        self.declare_parameter("lidar_range", 10.0)
+        self.lidar_range = self.get_parameter("lidar_range").value
+
+        #fraction of the measured distance
+        self.declare_parameter("lidar_relative_uncertainty", 0.0025)
+        self.lidar_relative_uncertainty = self.get_parameter("lidar_relative_uncertainty").value
+
+        self.declare_parameter("lidar_min_uncertainty", 0.005) #meters
+        self.lidar_min_uncertainty = self.get_parameter("lidar_min_uncertainty").value
+
         self.predict_dt = 0.2
         self.prediction_schedule = self.create_timer(self.predict_dt, self.predict_callback)
 
         self.resample_dt = 1.0
         self.resample_schedule = self.create_timer(self.resample_dt, self.resample_callback)
+
+        self.create_timer(1.0, self.param_cb)
 
         self.accel_sum = 0.0
         self.turn_rate_sum = 0.0
@@ -57,6 +71,7 @@ class ParticleFilterNode(Node):
         self.filter = ParticleFilter(self.params)
         collision_func = None # TODO: Fill this in
         self.filter.resample(collision_func)
+
     
     def predict_callback(self):
         vdot = self.accel / self.accel_reads
@@ -149,6 +164,15 @@ class ParticleFilterNode(Node):
 
             measurement[idx] = ray_distance
 
+        #determine the uncertainty of the measurement
+        uncertainty = measurement * self.lidar_relative_uncertainty
+        uncertainty = np.max(uncertainty, self.lidar_min_uncertainty)
+
+        #catch the case were a measurement greater than the lidar's range is expected
+        uncertainty[uncertainty > self.lidar_range * self.lidar_relative_uncertainty] = MEGA_UNCERTAINTY
+
+        return measurement, uncertainty
+
     def increment_ray_distance(self, map_pos, unit_vector, current_dist):
 
         #calculate the current ray position
@@ -173,11 +197,20 @@ class ParticleFilterNode(Node):
 
     def check_collision_map_frame(self, pos):
 
+        if(np.any(pos < 0) or np.any(pos > self.img.shape)):
+            #hopefully this is never triggered
+            self.get_logger().warn("Forcing collision due to out of bound issue...")
+            return True
+
         #check for a collision in the map frame
         if(self.img[floor(pos[0])][floor(pos[1])] < OCCUPIED_THRESHHOLD):
             return True
         
         return False
+    
+    def param_cb(self):
+
+        pass
         
 
 def main(args=None):
