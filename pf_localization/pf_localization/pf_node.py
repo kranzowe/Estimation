@@ -17,7 +17,7 @@ from particle_filter import ParticleFilter, ParticleFilterParams
 from ament_index_python import get_package_share_directory
 from dynamics import solve_dyn, process_noise
 
-OCCUPIED_THRESHHOLD = 0.7 * 255
+OCCUPIED_THRESHHOLD = 0.9 * 255
 MEGA_UNCERTAINTY = 1000
 
 class ParticleFilterNode(Node):
@@ -147,6 +147,7 @@ class ParticleFilterNode(Node):
 
     def get_measurement(self, pose):
         #IMPORTANT - this assumes that the lidar rotates counterclockwise!
+        #Use this to get a measurement and an uncertainty
 
         #get a measurement based on the current pose of the lidar
         measurement = np.zeros((self.lidar_resolution, 1))
@@ -218,6 +219,15 @@ class ParticleFilterNode(Node):
             return True
         
         return False
+    
+    def check_collision(self, pose):
+
+        #use this to check if the estimate is in collision with anything
+
+        map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
+
+        return self.check_collision_map_frame(map_pos)
+
     
     def get_img_index_from_pos(self, pos):
 
