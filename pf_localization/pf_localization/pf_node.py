@@ -7,6 +7,8 @@ import os
 import yaml
 import numpy as np
 from math import floor, cos, sin
+from pathlib import Path
+from scipy.stats import norm
 
 from nav_msgs.msg import Odometry
 from geometry_msgs.msg import Vector3
@@ -15,7 +17,7 @@ from PIL import Image
 
 from particle_filter import ParticleFilter, ParticleFilterParams
 from ament_index_python import get_package_share_directory
-from dynamics import solve_dyn, process_noise
+from dynamics import solve_dyn, process_noise, NoiseParams
 
 OCCUPIED_THRESHHOLD = 0.9 * 255
 MEGA_UNCERTAINTY = 1000
@@ -24,15 +26,6 @@ class ParticleFilterNode(Node):
 
     def __init__(self):
         super().__init__('pf_localization')
-
-        self.lidar_sub = self.create_subscription(
-            LaserScan, '/scan', self.lidar_callback, 10)
-        self.imu_sub = self.create_subscription(
-            Vector3, 'imu/accel', self.imu_callback, 10)
-        self.gyro_sub = self.create_subscription(
-            Vector3, 'imu/gyro', self.gyro_callback, 10)
-        self.estimate_pub = self.create_publisher(
-            Odometry, "/state_estimate", 10)
 
         self.declare_parameter("lidar_resolution", 360) #measurement per rotation
         self.lidar_resolution = self.get_parameter("lidar_resolution").value #measurement per rotation
@@ -51,37 +44,56 @@ class ParticleFilterNode(Node):
         self.declare_parameter("lidar_min_uncertainty", 0.005) #meters
         self.lidar_min_uncertainty = self.get_parameter("lidar_min_uncertainty").value
 
-        # self.predict_dt = 0.2
-        # self.prediction_schedule = self.create_timer(self.predict_dt, self.predict_callback)
-
-        # self.resample_dt = 1.0
-        # self.resample_schedule = self.create_timer(self.resample_dt, self.resample_callback)
-
-
-
-        # self.accel_sum = 0.0
-        # self.turn_rate_sum = 0.0
-        # self.accel_reads = 0
-        # self.turn_rate_reads = 0
+        self.declare_parameter("lateral_noise_std", 0.05) #meters
+        self.declare_parameter("forward_noise_std", 0.2) #meters
+        self.declare_parameter("theta_noise_std", np.pi/4) #radians
+        self.declare_parameter("v_noise_std", 0.05) #m/s
+        self.noise_params = NoiseParams(
+            self.get_parameter("lateral_noise_std").value,
+            self.get_parameter("forward_noise_std").value,
+            self.get_parameter("theta_noise_std").value,
+            self.get_parameter("v_noise_std").value
+        )
 
         self.map_loaded = False
         self.load_map()
+
+        self.params = ParticleFilterParams()
+        self.filter = ParticleFilter(self.params)
+        self.filter.resample(self.check_collision)
+
+        self.accel_sum = 0.0
+        self.turn_rate_sum = 0.0
+        self.accel_reads = 0
+        self.turn_rate_reads = 0
+
+        self.lidar_sub = self.create_subscription(
+            LaserScan, '/scan', self.lidar_callback, 10)
+        self.imu_sub = self.create_subscription(
+            Vector3, 'imu/accel', self.imu_callback, 10)
+        self.gyro_sub = self.create_subscription(
+            Vector3, 'imu/gyro', self.gyro_callback, 10)
+        self.estimate_pub = self.create_publisher(
+            Odometry, "/state_estimate", 10)
+        
+        self.predict_dt = 0.2
+        self.prediction_schedule = self.create_timer(self.predict_dt, self.predict_callback)
+
+        self.resample_dt = 1.0
+        self.resample_schedule = self.create_timer(self.resample_dt, self.resample_callback)
         
         self.create_timer(1.0, self.param_cb)
-        self.display_measurement([-5.0, 0.0, 0.0])
 
-
-
-        # self.params = ParticleFilterParams()
-        # self.filter = ParticleFilter(self.params)
-        # collision_func = None # TODO: Fill this in
-        # self.filter.resample(collision_func)
-        
-
+        debug_vis = False
+        if debug_vis:
+            Path("tmp/measurement.png").unlink(missing_ok=True)
+            Path("tmp/particles.png").unlink(missing_ok=True)
+            self.display_particles()
+            self.display_measurement([-5.0, 0.0, 0.0])
     
     def predict_callback(self):
-        vdot = self.accel / self.accel_reads
-        thetadot = self.turn_rate / self.turn_rate_reads
+        vdot = self.accel_sum / self.accel_reads if self.accel_reads > 0 else 0
+        thetadot = self.turn_rate_sum / self.turn_rate_reads if self.turn_rate_reads > 0 else 0
 
         self.accel_sum = 0.0
         self.turn_rate_sum = 0.0
@@ -89,16 +101,16 @@ class ParticleFilterNode(Node):
         self.turn_rate_reads = 0
 
         u = [vdot, thetadot]
-        self.filter.predict(solve_dyn, u, process_noise, self.predict_dt)
+
+        noise_func = lambda p, dt: process_noise(p, dt, self.noise_params)
+        self.filter.predict(solve_dyn, u, noise_func, self.predict_dt)
     
     def resample_callback(self):
-        collision_func = None # TODO: Fill this in
-        self.filter.resample(collision_func)
+        self.filter.resample(self.check_collision)
 
     def lidar_callback(self, msg):
-        measurement_func = None # TODO: Fill this in
-        measurement_err_likelihood = None # TODO: Fill this in
-        self.filter.update(msg, measurement_func, measurement_err_likelihood)
+        likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
+        self.filter.update(msg.ranges, self.get_measurement, likelihood_function)
 
         xhat, yhat, thetahat, vhat = self.filter.map_estimate()
         odom = Odometry()
@@ -285,13 +297,35 @@ class ParticleFilterNode(Node):
         center_pixel = self.get_img_index_from_pos(pose[:2])
         color_map.putpixel([int(center_pixel[1]), int(center_pixel[0])], (0,0,255))
 
-        color_map.show()
+        color_map.save("tmp/measurement.png")
 
 
-        
+    def display_particles(self):
+        #convert the map to color
+        color_map = self.raw_img.convert('RGB')
+
+        #show the center of the measurement as a blue pixel
+        for particle in self.filter.particles:
+            particle_pixel = self.get_img_index_from_pos(particle[:2])
+            color_map.putpixel([int(particle_pixel[1]), int(particle_pixel[0])], (0,0,255))
+        map_est = self.filter.map_estimate()
+        mmse_est = self.filter.mmse_estimate()
+        color_map.putpixel([int(map_est[1]), int(map_est[0])], (0,255,0))
+        color_map.putpixel([int(mmse_est[1]), int(mmse_est[0])], (255,0,0))
+        color_map.save("tmp/particles.png")
+
+
     def param_cb(self):
-
-        pass
+        self.lidar_resolution = self.get_parameter("lidar_resolution").value #measurement per rotation
+        self.lidar_range = self.get_parameter("lidar_range").value
+        self.lidar_relative_uncertainty = self.get_parameter("lidar_relative_uncertainty").value
+        self.lidar_min_uncertainty = self.get_parameter("lidar_min_uncertainty").value
+        self.noise_params = NoiseParams(
+            self.get_parameter("lateral_noise_std").value,
+            self.get_parameter("forward_noise_std").value,
+            self.get_parameter("theta_noise_std").value,
+            self.get_parameter("v_noise_std").value
+        )
         
 
 def main(args=None):
