@@ -19,11 +19,11 @@ def generate_launch_description():
 
     ARG_PARAM_lidar_resolution = DeclareLaunchArgument(
         'lidar_resolution',
-        default_value=60,
+        default_value='60',
     )
     ARG_PARAM_num_particles = DeclareLaunchArgument(
         'num_particles',
-        default_value=100,
+        default_value='100',
     )
 
     return LaunchDescription([
