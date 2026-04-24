@@ -116,6 +116,7 @@ class ParticleFilterNode(Node):
         self.filter.update(msg.ranges, self.get_measurement, likelihood_function)
 
         xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
+        self.get_logger().warn("I should be publishing.")
         odom = Odometry()
         odom.pose.pose.position.x = xhat
         odom.pose.pose.position.y = yhat
