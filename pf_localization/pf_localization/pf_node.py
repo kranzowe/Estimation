@@ -15,7 +15,7 @@ from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import LaserScan
 from PIL import Image
 
-from particle_filter import ParticleFilter, ParticleFilterParams
+from pf_localization.ukf import UKF
 from ament_index_python import get_package_share_directory
 from dynamics import solve_dyn, process_noise, NoiseParams
 
@@ -64,11 +64,14 @@ class ParticleFilterNode(Node):
         self.map_loaded = False
         self.load_map()
 
-        self.declare_parameter("num_particles", 100)
-        self.params = ParticleFilterParams()
-        self.params.num_particles = self.get_parameter("num_particles").value
-        self.filter = ParticleFilter(self.params)
-        self.filter.resample(self.check_collision)
+        # self.declare_parameter("num_particles", 100)
+        # self.params = ParticleFilterParams()
+        # self.params.num_particles = self.get_parameter("num_particles").value
+        # self.filter = ParticleFilter(self.params)
+        x0 = np.array([-27.5, 7.5, np.pi/2, 0.0])
+        P0 = np.diag(np.array([10.0, 10.0, np.pi, 1.0]))
+        Q = np.diag(np.array([0.3, 0.3, np.pi/8, 1.0]))
+        self.filter = UKF(x0, P0, Q)
 
         self.accel_sum = 0.0
         self.turn_rate_sum = 0.0
@@ -90,9 +93,6 @@ class ParticleFilterNode(Node):
 
         self.measurement_dt = 0.5
         self.prediction_schedule = self.create_timer(self.measurement_dt, self.measurement_update)
-
-        self.resample_dt = 1.0
-        self.resample_schedule = self.create_timer(self.resample_dt, self.resample_callback)
         
         self.create_timer(1.0, self.param_cb)
 
@@ -114,11 +114,19 @@ class ParticleFilterNode(Node):
 
         u = [vdot, thetadot]
 
-        noise_func = lambda p, dt: process_noise(p, dt, self.noise_params)
-        self.filter.predict(solve_dyn, u, noise_func, self.predict_dt)
-    
-    def resample_callback(self):
-        self.filter.resample(self.check_collision)
+        # noise_func = lambda p, dt: process_noise(p, dt, self.noise_params)
+        # self.filter.predict(solve_dyn, u, noise_func, self.predict_dt)
+        f = lambda x, dt: solve_dyn(x, u, dt)
+        self.filter.prediction(self.predict_dt, f, None)
+
+        xhat, yhat, thetahat, vhat = self.filter.x
+        self.get_logger().warn("I should be publishing.")
+        odom = Odometry()
+        odom.pose.pose.position.x = xhat
+        odom.pose.pose.position.y = yhat
+        odom.pose.pose.orientation.z = thetahat
+        odom.twist.twist.linear.x = vhat
+        self.estimate_pub.publish(odom)
 
     def lidar_callback(self, msg):
         self.last_lidar_scan = msg
@@ -128,12 +136,13 @@ class ParticleFilterNode(Node):
             return
         msg = self.last_lidar_scan
         self.get_logger().warn("Scan received.")
-        likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
+        # likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
         y = [msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)]
-        self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
+        # self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
+        self.filter.measurement(y, self.get_measurement)
         self.get_logger().warn("Updated.")
 
-        xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
+        xhat, yhat, thetahat, vhat = self.filter.x
         self.get_logger().warn("I should be publishing.")
         odom = Odometry()
         odom.pose.pose.position.x = xhat
@@ -184,20 +193,19 @@ class ParticleFilterNode(Node):
         #Use this to get a measurement and an uncertainty
 
         #get a measurement based on the current pose of the lidar
-        measurement = np.zeros((self.lidar_resolution, 1), dtype=np.float32)
+        measurement = np.zeros((self.lidar_resolution, 1))
         
         #determine where the pose is on the map
         map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
 
         for idx, measurement_angle in enumerate(np.linspace(pose[2], pose[2] + (2*np.pi * (self.lidar_resolution - 1) / self.lidar_resolution) , self.lidar_resolution)):
-
             collision_found = False
             ray_distance = 0
             
             #unit vector in the direction of the ray
-            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)], dtype=np.float32)
+            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
 
-            while(not collision_found):
+            while(not collision_found and ray_distance <= self.lidar_range/self.map_resolution):
                 #increment the ray distance
                 ray_distance = self.increment_ray_distance(map_pos, angle_unit_vector, ray_distance)
             
@@ -224,11 +232,11 @@ class ParticleFilterNode(Node):
         current_ray_pos = map_pos + unit_vector * current_dist
 
         #determine the current cell
-        current_cell = np.array([floor(current_ray_pos[0]), floor(current_ray_pos[1])], dtype=np.float32)
+        current_cell = np.array([floor(current_ray_pos[0] + 0.001), floor(current_ray_pos[1] + 0.001)])
         
         #determine the next cell in the direction
-        next_cell_x = current_cell + np.array([unit_vector[0] / abs(unit_vector[0]), 0], dtype=np.float32)
-        next_cell_y = current_cell + np.array([0, unit_vector[1] / abs(unit_vector[1])], dtype=np.float32) 
+        next_cell_x = current_cell + np.array([unit_vector[0] / abs(unit_vector[0]), 0])
+        next_cell_y = current_cell + np.array([0, unit_vector[1] / abs(unit_vector[1])]) 
 
         #determine if it shorter to the next cell to increment to the x bound or y bound
         dist_x = (next_cell_x[0]  - current_ray_pos[0]) / unit_vector[0]
@@ -258,7 +266,7 @@ class ParticleFilterNode(Node):
 
         #use this to check if the estimate is in collision with anything
 
-        map_pos = (np.array(pose[:2], dtype=np.float32) - self.origin[:2]) / self.map_resolution
+        map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
 
         return self.check_collision_map_frame(map_pos)
 
@@ -266,7 +274,7 @@ class ParticleFilterNode(Node):
     def get_img_index_from_pos(self, pos):
 
         #transform to map frame
-        map_pos = (np.array(pos, dtype=np.float32) - self.origin[:2]) / self.map_resolution
+        map_pos = (np.array(pos) - self.origin[:2]) / self.map_resolution
 
         if(map_pos[0] < 0):
             map_pos[0] = 0
@@ -325,7 +333,7 @@ class ParticleFilterNode(Node):
     def display_particles(self):
         color_map = self.raw_img.convert('RGB')
 
-        mmse_est = self.filter.mmse_estimate()
+        mmse_est = self.filter.x
 
         #get the measurement and the uncertainty
         measurement, uncertainty = self.get_measurement(mmse_est)
@@ -343,12 +351,12 @@ class ParticleFilterNode(Node):
             color_map.putpixel([int(pixel[1]), int(pixel[0])], (measurement_colors[0, idx], measurement_colors[1, idx], measurement_colors[2, idx]))
 
         #show the center of the measurement as a blue pixel
-        for particle in self.filter.particles:
-            particle_pixel = self.get_img_index_from_pos(particle[:2])
-            color_map.putpixel([int(particle_pixel[1]), int(particle_pixel[0])], (0,0,255))
+        # for particle in self.filter.particles:
+        #     particle_pixel = self.get_img_index_from_pos(particle[:2])
+        #     color_map.putpixel([int(particle_pixel[1]), int(particle_pixel[0])], (0,0,255))
         mmse_image = self.get_img_index_from_pos(mmse_est[:2])
-        map_est = self.get_img_index_from_pos(self.filter.map_estimate()[:2])
-        color_map.putpixel([int(map_est[1]), int(map_est[0])], (255,125,0))
+        # map_est = self.get_img_index_from_pos(self.filter.map_estimate()[:2])
+        # color_map.putpixel([int(map_est[1]), int(map_est[0])], (255,125,0))
         color_map.putpixel([int(mmse_image[1]), int(mmse_image[0])], (255,0,0))
         cv_image = np.array(color_map)
         msg = self.bridge.cv2_to_imgmsg(cv_image, encoding="rgb8")

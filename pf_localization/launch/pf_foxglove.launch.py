@@ -8,22 +8,22 @@ from launch.substitutions import LaunchConfiguration
 import os
 
 def generate_launch_description():
-    rplidar_launch = os.path.join(
-        get_package_share_directory('rplidar_ros'),
-        'launch',
-        'rplidar_a1_launch.py',
-    )
-    rplidar_launch_action = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(rplidar_launch),
-    )
+    # rplidar_launch = os.path.join(
+    #     get_package_share_directory('rplidar_ros'),
+    #     'launch',
+    #     'rplidar_a1_launch.py',
+    # )
+    # rplidar_launch_action = IncludeLaunchDescription(
+    #     PythonLaunchDescriptionSource(rplidar_launch),
+    # )
 
     ARG_PARAM_lidar_resolution = DeclareLaunchArgument(
         'lidar_resolution',
-        default_value=60,
+        default_value='60',
     )
     ARG_PARAM_num_particles = DeclareLaunchArgument(
         'num_particles',
-        default_value=100,
+        default_value='100',
     )
 
     return LaunchDescription([
@@ -51,5 +51,5 @@ def generate_launch_description():
                 "max_qos_depth": 10,
             }],
         ),
-        rplidar_launch_action,
+        # rplidar_launch_action,
     ])
