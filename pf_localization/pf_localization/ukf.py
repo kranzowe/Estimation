@@ -48,8 +48,8 @@ class UKF:
             offset = np.sqrt(self.n + self.l) * S[:,i]
             sp.append(self.x + offset)
             sp.append(self.x - offset)
-        innov_cov = np.diag(h(sp[0])[1]).copy()
-        logger.warn(f"{innov_cov.shape}")
+        logger.warn(f"{h(self.x)}")
+        innov_cov = np.diag(h(self.x)[1]).copy()
         spp = [h(p)[0] for p in sp]
         yhat = np.sum([wm * p for wm, p in zip(self.wm, spp)], axis=0)
         cross_cov = np.zeros((self.n, y.shape[0]))
