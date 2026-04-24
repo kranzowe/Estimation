@@ -137,7 +137,7 @@ class ParticleFilterNode(Node):
         msg = self.last_lidar_scan
         self.get_logger().warn("Scan received.")
         # likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
-        y = [msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)]
+        y = np.array([msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)])
         # self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
         self.filter.measurement(y, self.get_measurement)
         self.get_logger().warn("Updated.")
