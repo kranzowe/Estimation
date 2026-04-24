@@ -58,8 +58,10 @@ class UKF:
             cross_cov += self.wc[i] * (sp[i] - self.x)[:,None] @ innov.T
         K = cross_cov @ np.linalg.inv(innov_cov)
 
-        logger.warn(f"{(K @ (y-yhat)).shape}")
-        self.x = self.x + K @ (y - yhat)
+        logger.warn(f"{y.shape}")
+        logger.warn(f"{yhat.shape}")
+        logger.warn(f"{(K @ (y-yhat).T).shape}")
+        self.x = self.x + K @ (y - yhat).T
         self.P = self.P - (K @ innov_cov @ K.T)
 
         return self.x, self.P
