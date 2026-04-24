@@ -7,7 +7,7 @@ import os
 import yaml
 import numpy as np
 from math import floor, cos, sin
-from pathlib import Path
+# from pathlib import Path
 from scipy.stats import norm
 
 from nav_msgs.msg import Odometry
@@ -18,6 +18,9 @@ from PIL import Image
 from particle_filter import ParticleFilter, ParticleFilterParams
 from ament_index_python import get_package_share_directory
 from dynamics import solve_dyn, process_noise, NoiseParams
+
+from sensor_msgs.msg import Image as ROSImage
+from cv_bridge import CvBridge
 
 OCCUPIED_THRESHHOLD = 0.9 * 255
 MEGA_UNCERTAINTY = 1000
@@ -84,12 +87,12 @@ class ParticleFilterNode(Node):
         
         self.create_timer(1.0, self.param_cb)
 
-        debug_vis = False
-        if debug_vis:
-            Path("tmp/measurement.png").unlink(missing_ok=True)
-            Path("tmp/particles.png").unlink(missing_ok=True)
-            self.display_particles()
-            self.display_measurement([-5.0, 0.0, 0.0])
+        self.declare_parameter("debug", True)
+        if self.get_parameter("debug").value:
+            self.vis_pub = self.create_publisher(ROSImage, '/particle_filter/visualization', 10)
+            self.bridge = CvBridge()
+            self.visualization_dt = 0.5
+            self.vis_schedule = self.create_timer(self.visualization_dt, self.display_particles)
     
     def predict_callback(self):
         vdot = self.accel_sum / self.accel_reads if self.accel_reads > 0 else 0
@@ -112,7 +115,7 @@ class ParticleFilterNode(Node):
         likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
         self.filter.update(msg.ranges, self.get_measurement, likelihood_function)
 
-        xhat, yhat, thetahat, vhat = self.filter.map_estimate()
+        xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
         odom = Odometry()
         odom.pose.pose.position.x = xhat
         odom.pose.pose.position.y = yhat
@@ -297,22 +300,40 @@ class ParticleFilterNode(Node):
         center_pixel = self.get_img_index_from_pos(pose[:2])
         color_map.putpixel([int(center_pixel[1]), int(center_pixel[0])], (0,0,255))
 
-        color_map.save("tmp/measurement.png")
+        color_map.show()
 
 
     def display_particles(self):
-        #convert the map to color
         color_map = self.raw_img.convert('RGB')
+
+        mmse_est = self.filter.mmse_estimate()
+
+        #get the measurement and the uncertainty
+        measurement, uncertainty = self.get_measurement(mmse_est)
+        #color scale factor = 255 / (max - min)
+        color_scale = 255.0 / (self.lidar_relative_uncertainty * self.lidar_range - self.lidar_min_uncertainty)
+        #red is the least certain / green is the most certain
+        measurement_colors = np.zeros((3, self.lidar_resolution), dtype=np.uint8)
+        for i in range(0, self.lidar_resolution):
+            measurement_colors[:, i] = np.array([max(0, min(255, floor(color_scale * uncertainty[i]))), 255 - max(0, min(255, floor(color_scale * uncertainty[i]))), 0], dtype=np.uint8)
+        #determine where each measurement happened
+        for idx, measurement_angle in enumerate(np.linspace(mmse_est[2], mmse_est[2] + 2*np.pi, self.lidar_resolution)):
+            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
+            measurement_pos = np.array(mmse_est[:2]) + angle_unit_vector * measurement[idx]
+            pixel = self.get_img_index_from_pos(measurement_pos)
+            color_map.putpixel([int(pixel[1]), int(pixel[0])], (measurement_colors[0, idx], measurement_colors[1, idx], measurement_colors[2, idx]))
 
         #show the center of the measurement as a blue pixel
         for particle in self.filter.particles:
             particle_pixel = self.get_img_index_from_pos(particle[:2])
             color_map.putpixel([int(particle_pixel[1]), int(particle_pixel[0])], (0,0,255))
-        map_est = self.filter.map_estimate()
-        mmse_est = self.filter.mmse_estimate()
-        color_map.putpixel([int(map_est[1]), int(map_est[0])], (0,255,0))
-        color_map.putpixel([int(mmse_est[1]), int(mmse_est[0])], (255,0,0))
-        color_map.save("tmp/particles.png")
+        mmse_image = self.get_img_index_from_pos(mmse_est[:2])
+        map_est = self.get_img_index_from_pos(self.filter.map_estimate()[:2])
+        color_map.putpixel([int(map_est[1]), int(map_est[0])], (255,125,0))
+        color_map.putpixel([int(mmse_image[1]), int(mmse_image[0])], (255,0,0))
+        cv_image = np.array(color_map)
+        msg = self.bridge.cv2_to_imgmsg(cv_image, encoding="rgb8")
+        self.vis_pub.publish(msg)
 
 
     def param_cb(self):

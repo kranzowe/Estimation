@@ -5,8 +5,8 @@ from dataclasses import dataclass
 class ParticleFilterParams:
     num_particles = 500
     num_states = 4 # x, y, theta, v, battery
-    x0_min = [-30, 5, -np.pi, 0]
-    x0_max = [-25, 10, np.pi, 0]
+    x0_min = [-29, 6, -np.pi, 0]
+    x0_max = [-26, 9, np.pi, 0]
 
 class ParticleFilter:
     def __init__(self, params):
