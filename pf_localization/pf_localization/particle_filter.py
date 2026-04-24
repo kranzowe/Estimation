@@ -61,6 +61,7 @@ class ParticleFilter:
             logger.warn(f"{i}")
             p = self.particles[i]
             expected_measurements, uncertainties = h(p)
+            logger.warn(f"Ran expected measurement")
             for j in range(len(y)):
                 err = y[j] - expected_measurements[j]
                 uncertainty = uncertainties[j]
