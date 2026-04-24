@@ -30,8 +30,11 @@ class ParticleFilterNode(Node):
     def __init__(self):
         super().__init__('pf_localization')
 
-        self.declare_parameter("lidar_resolution", 720) #measurement per rotation
-        self.lidar_resolution = self.get_parameter("lidar_resolution").value #measurement per rotation
+        self.declare_parameter("true_lidar_resolution", 720)
+        self.declare_parameter("lidar_resolution", 60) #measurement per rotation
+        self.true_lidar_resolution = self.get_parameter("true_lidar_resolution").value
+        self.lidar_resolution = self.get_parameter("lidar_resolution").value
+        self.lidar_sample_interval = int(self.true_lidar_resolution / self.lidar_resolution) 
         
         self.declare_parameter("map_filename", "Best_map")
         self.map_name = self.get_parameter("map_filename").value
@@ -61,7 +64,9 @@ class ParticleFilterNode(Node):
         self.map_loaded = False
         self.load_map()
 
+        self.declare_parameter("num_particles", 100)
         self.params = ParticleFilterParams()
+        self.params.num_particles = self.get_parameter("num_particles")
         self.filter = ParticleFilter(self.params)
         self.filter.resample(self.check_collision)
 
@@ -69,6 +74,7 @@ class ParticleFilterNode(Node):
         self.turn_rate_sum = 0.0
         self.accel_reads = 0
         self.turn_rate_reads = 0
+        self.last_lidar_scan = None
 
         self.lidar_sub = self.create_subscription(
             LaserScan, '/scan', self.lidar_callback, 10)
@@ -81,6 +87,9 @@ class ParticleFilterNode(Node):
         
         self.predict_dt = 0.2
         self.prediction_schedule = self.create_timer(self.predict_dt, self.predict_callback)
+
+        self.measurement_dt = 0.5
+        self.prediction_schedule = self.create_timer(self.measurement_dt, self.measurement_update)
 
         self.resample_dt = 1.0
         self.resample_schedule = self.create_timer(self.resample_dt, self.resample_callback)
@@ -112,9 +121,16 @@ class ParticleFilterNode(Node):
         self.filter.resample(self.check_collision)
 
     def lidar_callback(self, msg):
+        self.last_lidar_scan = msg
+    
+    def measurement_update(self):
+        if self.last_lidar_scan is None:
+            return
+        msg = self.last_lidar_scan
         self.get_logger().warn("Scan received.")
         likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
-        self.filter.update(msg.ranges, self.get_measurement, likelihood_function, self.get_logger())
+        y = [msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)]
+        self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
         self.get_logger().warn("Updated.")
 
         xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
