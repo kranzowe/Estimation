@@ -54,8 +54,8 @@ class UKF:
         cross_cov = np.zeros((self.n, y.shape[0]))
         for i in range(len(spp)):
             innov = spp[i] - yhat
-            innov_cov +=  self.wc[i] * innov @ innov.T
-            cross_cov += self.wc[i] * (sp[i] - self.x)[:,None] @ innov.T
+            innov_cov +=  self.wc[i].item() * innov @ innov.T
+            cross_cov += self.wc[i].item() * (sp[i] - self.x)[:,None] @ innov.T
         K = cross_cov @ np.linalg.inv(innov_cov)
 
         self.x = self.x + K @ (y - yhat)
