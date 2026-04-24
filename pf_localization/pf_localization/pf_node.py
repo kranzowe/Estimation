@@ -168,18 +168,18 @@ class ParticleFilterNode(Node):
         #Use this to get a measurement and an uncertainty
 
         #get a measurement based on the current pose of the lidar
-        measurement = np.zeros((self.lidar_resolution, 1))
+        measurement = np.zeros((self.lidar_resolution, 1), dtype=np.float32)
         
         #determine where the pose is on the map
         map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
 
-        for idx, measurement_angle in enumerate(np.linspace(pose[2], pose[2] + 2*np.pi, self.lidar_resolution)):
+        for idx, measurement_angle in enumerate(np.linspace(pose[2], pose[2] + (2*np.pi * (self.lidar_resolution - 1) / self.lidar_resolution) , self.lidar_resolution)):
 
             collision_found = False
             ray_distance = 0
             
             #unit vector in the direction of the ray
-            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
+            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)], dtype=np.float32)
 
             while(not collision_found):
                 #increment the ray distance
@@ -208,11 +208,11 @@ class ParticleFilterNode(Node):
         current_ray_pos = map_pos + unit_vector * current_dist
 
         #determine the current cell
-        current_cell = np.array([floor(current_ray_pos[0]), floor(current_ray_pos[1])])
+        current_cell = np.array([floor(current_ray_pos[0]), floor(current_ray_pos[1])], dtype=np.float32)
         
         #determine the next cell in the direction
-        next_cell_x = current_cell + np.array([unit_vector[0] / abs(unit_vector[0]), 0])
-        next_cell_y = current_cell + np.array([0, unit_vector[1] / abs(unit_vector[1])])
+        next_cell_x = current_cell + np.array([unit_vector[0] / abs(unit_vector[0]), 0], dtype=np.float32)
+        next_cell_y = current_cell + np.array([0, unit_vector[1] / abs(unit_vector[1])], dtype=np.float32) 
 
         #determine if it shorter to the next cell to increment to the x bound or y bound
         dist_x = (next_cell_x[0]  - current_ray_pos[0]) / unit_vector[0]
@@ -242,7 +242,7 @@ class ParticleFilterNode(Node):
 
         #use this to check if the estimate is in collision with anything
 
-        map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
+        map_pos = (np.array(pose[:2], dtype=np.float32) - self.origin[:2]) / self.map_resolution
 
         return self.check_collision_map_frame(map_pos)
 
@@ -250,7 +250,7 @@ class ParticleFilterNode(Node):
     def get_img_index_from_pos(self, pos):
 
         #transform to map frame
-        map_pos = (np.array(pos) - self.origin[:2]) / self.map_resolution
+        map_pos = (np.array(pos, dtype=np.float32) - self.origin[:2]) / self.map_resolution
 
         if(map_pos[0] < 0):
             map_pos[0] = 0
@@ -260,7 +260,7 @@ class ParticleFilterNode(Node):
         if(map_pos[1] < 0):
             map_pos[1] = 0
         elif(map_pos[1] >= self.img.shape[1]):
-            map_pos[1] = self.img.shape[1] - 1
+            map_pos[1] = self.img.shape[1] - 1dtype
 
         #get the coordinates
         return np.floor(map_pos)
