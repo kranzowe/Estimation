@@ -27,10 +27,10 @@ file(GLOB MAPS ${CMAKE_CURRENT_SOURCE_DIR}/maps/*)
 
 
 # Install launch files
-# install(DIRECTORY
-#   launch/
-#   DESTINATION share/${PROJECT_NAME}/launch
-# )
+install(DIRECTORY
+  launch/
+  DESTINATION share/${PROJECT_NAME}/launch
+)
 
 
 #Install the resource riles
