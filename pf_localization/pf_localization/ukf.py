@@ -53,8 +53,8 @@ class UKF:
         yhat = np.sum([wm * p for wm, p in zip(self.wm, spp)], axis=0)
         cross_cov = np.zeros((self.n, y.shape[0]))
         for i in range(len(spp)):
-            logger.warn(spp[i].shape)
-            logger.warn(yhat.shape)
+            logger.warn(f"{spp[i].shape}")
+            logger.warn(f"{yhat.shape}")
             innov_cov += self.wc[i] * (spp[i] - yhat)[:,None] @ (spp[i] - yhat)[None,:]
             cross_cov += self.wc[i] * (sp[i] - self.x)[:,None] @ (spp[i] - yhat)[None,:] 
         K = cross_cov @ np.linalg.inv(innov_cov)
