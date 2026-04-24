@@ -276,7 +276,7 @@ class ParticleFilterNode(Node):
         if(map_pos[1] < 0):
             map_pos[1] = 0
         elif(map_pos[1] >= self.img.shape[1]):
-            map_pos[1] = self.img.shape[1] - 1dtype
+            map_pos[1] = self.img.shape[1] - 1
 
         #get the coordinates
         return np.floor(map_pos)
