@@ -30,7 +30,7 @@ class ParticleFilterNode(Node):
     def __init__(self):
         super().__init__('pf_localization')
 
-        self.declare_parameter("lidar_resolution", 360) #measurement per rotation
+        self.declare_parameter("lidar_resolution", 720) #measurement per rotation
         self.lidar_resolution = self.get_parameter("lidar_resolution").value #measurement per rotation
         
         self.declare_parameter("map_filename", "Best_map")
