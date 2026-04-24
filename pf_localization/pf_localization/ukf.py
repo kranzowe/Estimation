@@ -62,6 +62,7 @@ class UKF:
         logger.warn(f"{K.shape}")
         innov = y - yhat.flatten()
         logger.warn(f"{innov.shape}")
+        logger.warn(f"{K@innov}")
         self.x = self.x + K @ innov
         self.P = self.P - (K @ innov_cov @ K.T)
 
