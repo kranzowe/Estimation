@@ -59,10 +59,10 @@ class UKF:
         K = cross_cov @ np.linalg.inv(innov_cov)
 
         logger.warn(f"{y.shape}")
-        logger.warn(f"{yhat.flatten().shape}")
         logger.warn(f"{K.shape}")
-        logger.warn(f"{(K @ (y-yhat.flatten())).shape}")
-        self.x = self.x + K @ (y - yhat.flatten())
+        innov = y - yhat.flatten()
+        logger.warn(f"{innov.shape}")
+        self.x = self.x + K @ innov
         self.P = self.P - (K @ innov_cov @ K.T)
 
         return self.x, self.P
