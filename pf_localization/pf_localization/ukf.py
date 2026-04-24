@@ -41,7 +41,7 @@ class UKF:
 
         return self.x, self.P
 
-    def measurement(self, y, h):
+    def measurement(self, y, h, logger):
         S = np.linalg.cholesky(self.P)
         sp = [self.x]
         for i in range(self.n):
@@ -53,6 +53,8 @@ class UKF:
         yhat = np.sum([wm * p for wm, p in zip(self.wm, spp)], axis=0)
         cross_cov = np.zeros((self.n, y.shape[0]))
         for i in range(len(spp)):
+            logger.warn(spp[i].shape)
+            logger.warn(yhat.shape)
             innov_cov += self.wc[i] * (spp[i] - yhat)[:,None] @ (spp[i] - yhat)[None,:]
             cross_cov += self.wc[i] * (sp[i] - self.x)[:,None] @ (spp[i] - yhat)[None,:] 
         K = cross_cov @ np.linalg.inv(innov_cov)
