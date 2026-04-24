@@ -57,6 +57,7 @@ class ParticleFilter:
         """
         weights = self.weights
         for i in range(len(self.particles)):
+            print(i)
             p = self.particles[i]
             expected_measurements, uncertainties = h(p)
             for j in range(len(y)):
