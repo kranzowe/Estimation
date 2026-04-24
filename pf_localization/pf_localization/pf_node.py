@@ -66,7 +66,7 @@ class ParticleFilterNode(Node):
 
         self.declare_parameter("num_particles", 100)
         self.params = ParticleFilterParams()
-        self.params.num_particles = self.get_parameter("num_particles")
+        self.params.num_particles = self.get_parameter("num_particles").value
         self.filter = ParticleFilter(self.params)
         self.filter.resample(self.check_collision)
 
