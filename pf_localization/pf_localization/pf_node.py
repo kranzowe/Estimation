@@ -112,8 +112,10 @@ class ParticleFilterNode(Node):
         self.filter.resample(self.check_collision)
 
     def lidar_callback(self, msg):
+        self.get_logger().warn("Scan received.")
         likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
         self.filter.update(msg.ranges, self.get_measurement, likelihood_function)
+        self.get_logger().warn("Updated.")
 
         xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
         self.get_logger().warn("I should be publishing.")
