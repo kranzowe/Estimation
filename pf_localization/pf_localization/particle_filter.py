@@ -49,15 +49,16 @@ class ParticleFilter:
             pps.append(pp)
         self.particles = pps
 
-    def update(self, y, h, lf):
+    def update(self, y, h, lf, logger):
         """
         y: Observed measurement
         h: Measurement function
         lf: Sensor error likelihood function
         """
+        logger.warn("Updating")
         weights = self.weights
         for i in range(len(self.particles)):
-            print(i)
+            logger.warn(i)
             p = self.particles[i]
             expected_measurements, uncertainties = h(p)
             for j in range(len(y)):
