@@ -39,6 +39,13 @@ install(PROGRAMS
   DESTINATION share/${PROJECT_NAME}/maps
 )
 
+file(GLOB DATA ${CMAKE_CURRENT_SOURCE_DIR}/data/*)
+install(PROGRAMS
+  ${DATA}
+  DESTINATION share/${PROJECT_NAME}/data
+)
+
+
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)
   ament_lint_auto_find_test_dependencies()

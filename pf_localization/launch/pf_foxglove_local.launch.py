@@ -1,22 +1,9 @@
 from launch import LaunchDescription
 from launch_ros.actions import Node
-from ament_index_python.packages import get_package_share_directory
-from launch.actions import IncludeLaunchDescription
-from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.actions import DeclareLaunchArgument
 from launch.substitutions import LaunchConfiguration
-import os
 
 def generate_launch_description():
-    rplidar_launch = os.path.join(
-        get_package_share_directory('rplidar_ros'),
-        'launch',
-        'rplidar_a1_launch.py',
-    )
-    rplidar_launch_action = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(rplidar_launch),
-    )
-
     ARG_PARAM_lidar_resolution = DeclareLaunchArgument(
         'lidar_resolution',
         default_value='60',
@@ -44,6 +31,7 @@ def generate_launch_description():
             executable="pf_node.py",
             name="pf_localization",
             parameters=[{
+                "debug": True,
                 "visualize": True,
                 'num_particles': LaunchConfiguration('num_particles'),
                 'lidar_resolution': LaunchConfiguration('lidar_resolution'),
@@ -64,5 +52,4 @@ def generate_launch_description():
                 "max_qos_depth": 10,
             }],
         ),
-        rplidar_launch_action,
     ])

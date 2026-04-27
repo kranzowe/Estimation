@@ -19,6 +19,13 @@ from particle_filter import ParticleFilter, ParticleFilterParams
 from ament_index_python import get_package_share_directory
 from dynamics import solve_dyn, process_noise, NoiseParams
 
+from pf_localization.measurement.map import Map
+from pf_localization.measurement.llf import LidarLikelihoodField
+from pf_localization.measurement.ray_tracing import RayTracer
+
+import json
+import os
+
 from sensor_msgs.msg import Image as ROSImage
 from cv_bridge import CvBridge
 
@@ -50,9 +57,9 @@ class ParticleFilterNode(Node):
         self.declare_parameter("lidar_min_uncertainty", 0.005) #meters
         self.lidar_min_uncertainty = self.get_parameter("lidar_min_uncertainty").value
 
-        self.declare_parameter("lateral_noise_std", 0.05) #meters
-        self.declare_parameter("forward_noise_std", 0.2) #meters
-        self.declare_parameter("theta_noise_std", np.pi/4) #radians
+        self.declare_parameter("lateral_noise_std", 0.02) #meters
+        self.declare_parameter("forward_noise_std", 0.1) #meters
+        self.declare_parameter("theta_noise_std", np.pi/8) #radians
         self.declare_parameter("v_noise_std", 0.05) #m/s
         self.noise_params = NoiseParams(
             self.get_parameter("lateral_noise_std").value,
@@ -65,10 +72,17 @@ class ParticleFilterNode(Node):
         self.load_map()
 
         self.declare_parameter("num_particles", 100)
+        self.declare_parameter("x0_pos", [-28.0, 7.0])
+        self.declare_parameter("x0_spread", 1.0)
+        x0_pos = self.get_parameter("x0_pos").value
+        x0_spread = self.get_parameter("x0_spread").value
+
         self.params = ParticleFilterParams()
         self.params.num_particles = self.get_parameter("num_particles").value
+        self.params.x0_min = [x0_pos[0]-x0_spread, x0_pos[1]-x0_spread, -np.pi, 0]
+        self.params.x0_max = [x0_pos[0]+x0_spread, x0_pos[1]+x0_spread, np.pi, 0]
         self.filter = ParticleFilter(self.params)
-        self.filter.resample(self.check_collision)
+        self.filter.resample(self.map.check_collision)
 
         self.accel_sum = 0.0
         self.turn_rate_sum = 0.0
@@ -96,8 +110,22 @@ class ParticleFilterNode(Node):
         
         self.create_timer(1.0, self.param_cb)
 
-        self.declare_parameter("debug", True)
+        # Debug mode is used for testing off of the Pi
+        self.declare_parameter("debug", False)
         if self.get_parameter("debug").value:
+            scan_path = os.path.join(get_package_share_directory('pf_localization'), 'data/laserscan.json')
+            with open(scan_path, 'r') as f:
+                lidar_scan_load = json.load(f)
+                msg = LaserScan()
+                msg.header.stamp = self.get_clock().now().to_msg()
+                msg.angle_min = float(lidar_scan_load['angle_min'])
+                msg.angle_max = float(lidar_scan_load['angle_max'])
+                msg.angle_increment = float(lidar_scan_load['angle_increment'])
+                msg.ranges = [float(r) if r is not None else float('inf') for r in lidar_scan_load['ranges']]
+                self.last_lidar_scan = msg
+
+        self.declare_parameter("visualize", True)
+        if self.get_parameter("visualize").value:
             self.vis_pub = self.create_publisher(ROSImage, '/particle_filter/visualization', 10)
             self.bridge = CvBridge()
             self.visualization_dt = 0.5
@@ -118,7 +146,7 @@ class ParticleFilterNode(Node):
         self.filter.predict(solve_dyn, u, noise_func, self.predict_dt)
     
     def resample_callback(self):
-        self.filter.resample(self.check_collision)
+        self.filter.resample(self.map.check_collision)
 
     def lidar_callback(self, msg):
         self.last_lidar_scan = msg
@@ -127,15 +155,24 @@ class ParticleFilterNode(Node):
         if self.last_lidar_scan is None:
             return
         msg = self.last_lidar_scan
-        self.get_logger().warn("Scan received.")
-        likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
-        y = [msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)]
-        self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
-        self.get_logger().warn("Updated.")
+
+        # Ray Tracing Measurement Update
+        # likelihood_function = lambda err, sigma: norm.pdf(0.0, loc=err, scale=sigma)
+        # y = [msg.ranges[i] for i in range(0, self.true_lidar_resolution, self.lidar_sample_interval)]
+        # self.filter.update(y, self.get_measurement, likelihood_function, self.get_logger())
+
+        weights = self.llf.update_particle_weights(
+            np.array(self.filter.particles),
+            msg,
+            self.lidar_sample_interval,
+            self.lidar_resolution,
+            self.lidar_range
+        )
+        self.filter.update_weights(weights)
 
         xhat, yhat, thetahat, vhat = self.filter.mmse_estimate()
-        self.get_logger().warn("I should be publishing.")
         odom = Odometry()
+        odom.header.stamp = self.get_clock().now().to_msg()
         odom.pose.pose.position.x = xhat
         odom.pose.pose.position.y = yhat
         odom.pose.pose.orientation.z = thetahat
@@ -166,160 +203,27 @@ class ParticleFilterNode(Node):
         try:
             with open(file_path_params, "r") as param_file:
                 map_params = yaml.safe_load(param_file)
-
-                self.map_resolution = map_params["resolution"]
-                self.origin = map_params["origin"]
-                map_size = np.array(self.img.shape) * self.map_resolution
-                self.lower_bound = self.origin[:2]
-                self.upper_bound = self.lower_bound + map_size
-
-                self.get_logger().info(f"{self.upper_bound}")
+                self.map = Map(
+                    img=self.img,
+                    map_resolution=map_params["resolution"],
+                    origin=map_params["origin"],
+                    OCCUPIED_THRESHHOLD=OCCUPIED_THRESHHOLD,
+                    logger=self.get_logger()
+                )
+                map_size = np.array(self.img.shape) * self.map.map_resolution
+                lower_bound = self.map.origin[:2]
+                upper_bound = lower_bound + map_size
+                self.get_logger().info(f"Map Initialized with bounds: {lower_bound}, {upper_bound}")
+            self.llf = LidarLikelihoodField(
+                map=self.map,
+                sigma=self.lidar_min_uncertainty * 25,   # tune this
+                occupied_threshold=int(255*0.4), # tune this
+                logger=self.get_logger()
+            )
                     
         except Exception as e:
             self.get_logger().error(f"Could not load map {self.map_name}. Please adjust the map_name filename.{e}")
             self.map_loaded = False
-
-    def get_measurement(self, pose):
-        #IMPORTANT - this assumes that the lidar rotates counterclockwise!
-        #Use this to get a measurement and an uncertainty
-
-        #get a measurement based on the current pose of the lidar
-        measurement = np.zeros((self.lidar_resolution, 1))
-        
-        #determine where the pose is on the map
-        map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
-
-        for idx, measurement_angle in enumerate(np.linspace(pose[2], pose[2] + (2*np.pi * (self.lidar_resolution - 1) / self.lidar_resolution) , self.lidar_resolution)):
-
-            collision_found = False
-            ray_distance = 0
-            
-            #unit vector in the direction of the ray
-            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
-
-            while(not collision_found):
-                #increment the ray distance
-                ray_distance = self.increment_ray_distance(map_pos, angle_unit_vector, ray_distance)
-            
-                #check for a collision in the map
-                collision_found = self.check_collision_map_frame(map_pos + ray_distance * angle_unit_vector)
-
-            measurement[idx] = ray_distance
-
-        #scale to bring back to the "real" scale of things
-        measurement = measurement * self.map_resolution
-
-        #determine the uncertainty of the measurement
-        uncertainty = measurement * self.lidar_relative_uncertainty
-        uncertainty = np.maximum(uncertainty, self.lidar_min_uncertainty)
-
-        #catch the case were a measurement greater than the lidar's range is expected
-        uncertainty[uncertainty > self.lidar_range * self.lidar_relative_uncertainty] = MEGA_UNCERTAINTY
-
-        return measurement, uncertainty
-
-    def increment_ray_distance(self, map_pos, unit_vector, current_dist):
-
-        #calculate the current ray position
-        current_ray_pos = map_pos + unit_vector * current_dist
-
-        #determine the current cell
-        current_cell = np.array([floor(current_ray_pos[0]), floor(current_ray_pos[1])])
-        
-        #determine the next cell in the direction
-        next_cell_x = current_cell + np.array([unit_vector[0] / abs(unit_vector[0]), 0])
-        next_cell_y = current_cell + np.array([0, unit_vector[1] / abs(unit_vector[1])]) 
-
-        #determine if it shorter to the next cell to increment to the x bound or y bound
-        dist_x = (next_cell_x[0]  - current_ray_pos[0]) / unit_vector[0]
-        dist_y = (next_cell_y[1]  - current_ray_pos[1]) / unit_vector[1]
-
-        if(dist_x < dist_y or abs(unit_vector[1]) < 1e-3) and (abs(unit_vector[0]) > 1e-3):
-            return current_dist + dist_x
-        else:
-            return current_dist + dist_y
-
-
-    def check_collision_map_frame(self, pos):
-
-        if(np.any(pos < 0) or np.any(pos >= self.img.shape)):
-            #hopefully this is never triggered
-            self.get_logger().warn("Forcing collision due to out of bound issue...")
-            return True
-
-        #check for a collision in the map frame
-        if(self.img[floor(pos[0])][floor(pos[1])] < OCCUPIED_THRESHHOLD):
-
-            return True
-        
-        return False
-    
-    def check_collision(self, pose):
-
-        #use this to check if the estimate is in collision with anything
-
-        map_pos = (np.array(pose[:2]) - self.origin[:2]) / self.map_resolution
-
-        return self.check_collision_map_frame(map_pos)
-
-    
-    def get_img_index_from_pos(self, pos):
-
-        #transform to map frame
-        map_pos = (np.array(pos) - self.origin[:2]) / self.map_resolution
-
-        if(map_pos[0] < 0):
-            map_pos[0] = 0
-        elif(map_pos[0] >= self.img.shape[0]):
-            map_pos[0] = self.img.shape[0] - 1
-
-        if(map_pos[1] < 0):
-            map_pos[1] = 0
-        elif(map_pos[1] >= self.img.shape[1]):
-            map_pos[1] = self.img.shape[1] - 1
-
-        #get the coordinates
-        return np.floor(map_pos)
-
-    
-    def display_measurement(self, pose):
-
-        #debug function to display a measurement around a given pose
-
-
-        #get the measurement and the uncertainty
-        measurement, uncertainty = self.get_measurement(pose)
-
-        #convert the map to color
-        color_map = self.raw_img.convert('RGB')
-
-        #color scale factor = 255 / (max - min)
-        color_scale = 255.0 / (self.lidar_relative_uncertainty * self.lidar_range - self.lidar_min_uncertainty)
-
-        #red is the least certain / green is the most certain
-        measurement_colors = np.zeros((3, self.lidar_resolution), dtype=np.uint8)
-        for i in range(0, self.lidar_resolution):
-
-            measurement_colors[:, i] = np.array([max(0, min(255, floor(color_scale * uncertainty[i]))), 255 - max(0, min(255, floor(color_scale * uncertainty[i]))), 0], dtype=np.uint8)
-
-
-        #determine where each measurement happened
-        for idx, measurement_angle in enumerate(np.linspace(pose[2], pose[2] + 2*np.pi, self.lidar_resolution)):
-
-            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
-
-            measurement_pos = np.array(pose[:2]) + angle_unit_vector * measurement[idx]
-
-            #get the pixel
-            pixel = self.get_img_index_from_pos(measurement_pos)
-
-            color_map.putpixel([int(pixel[1]), int(pixel[0])], (measurement_colors[0, idx], measurement_colors[1, idx], measurement_colors[2, idx]))
-
-        #show the center of the measurement as a blue pixel
-        center_pixel = self.get_img_index_from_pos(pose[:2])
-        color_map.putpixel([int(center_pixel[1]), int(center_pixel[0])], (0,0,255))
-
-        color_map.show()
 
 
     def display_particles(self):
@@ -327,27 +231,26 @@ class ParticleFilterNode(Node):
 
         mmse_est = self.filter.mmse_estimate()
 
-        #get the measurement and the uncertainty
-        measurement, uncertainty = self.get_measurement(mmse_est)
-        #color scale factor = 255 / (max - min)
-        color_scale = 255.0 / (self.lidar_relative_uncertainty * self.lidar_range - self.lidar_min_uncertainty)
-        #red is the least certain / green is the most certain
-        measurement_colors = np.zeros((3, self.lidar_resolution), dtype=np.uint8)
-        for i in range(0, self.lidar_resolution):
-            measurement_colors[:, i] = np.array([max(0, min(255, floor(color_scale * uncertainty[i]))), 255 - max(0, min(255, floor(color_scale * uncertainty[i]))), 0], dtype=np.uint8)
-        #determine where each measurement happened
-        for idx, measurement_angle in enumerate(np.linspace(mmse_est[2], mmse_est[2] + 2*np.pi, self.lidar_resolution)):
-            angle_unit_vector = np.array([cos(measurement_angle), sin(measurement_angle)])
-            measurement_pos = np.array(mmse_est[:2]) + angle_unit_vector * measurement[idx]
-            pixel = self.get_img_index_from_pos(measurement_pos)
-            color_map.putpixel([int(pixel[1]), int(pixel[0])], (measurement_colors[0, idx], measurement_colors[1, idx], measurement_colors[2, idx]))
+        # #get the measurement and the uncertainty
+
+        if self.get_parameter("debug").value:
+            ray_tracer = RayTracer(
+                map=self.map,
+                lidar_resolution=self.lidar_resolution,
+                lidar_relative_uncertainty=self.lidar_relative_uncertainty,
+                lidar_min_uncertainty=self.lidar_min_uncertainty,
+                lidar_range=self.lidar_range,
+                MEGA_UNCERTAINTY=MEGA_UNCERTAINTY
+            )
+            ray_tracer.display_measurement(mmse_est, color_map)
 
         #show the center of the measurement as a blue pixel
         for particle in self.filter.particles:
-            particle_pixel = self.get_img_index_from_pos(particle[:2])
+            particle_pixel = self.map.get_img_index_from_pos(particle[0], particle[1])
             color_map.putpixel([int(particle_pixel[1]), int(particle_pixel[0])], (0,0,255))
-        mmse_image = self.get_img_index_from_pos(mmse_est[:2])
-        map_est = self.get_img_index_from_pos(self.filter.map_estimate()[:2])
+        mmse_image = self.map.get_img_index_from_pos(mmse_est[0], mmse_est[1])
+        map_est_pos = self.filter.map_estimate()
+        map_est = self.map.get_img_index_from_pos(map_est_pos[0], map_est_pos[1])
         color_map.putpixel([int(map_est[1]), int(map_est[0])], (255,125,0))
         color_map.putpixel([int(mmse_image[1]), int(mmse_image[0])], (255,0,0))
         cv_image = np.array(color_map)

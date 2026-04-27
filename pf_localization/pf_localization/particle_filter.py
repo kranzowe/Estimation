@@ -6,7 +6,7 @@ class ParticleFilterParams:
     num_particles = 500
     num_states = 4 # x, y, theta, v, battery
     x0_min = [-29, 6, -np.pi, 0]
-    x0_max = [-26, 9, np.pi, 0]
+    x0_max = [-27, 8, np.pi, 0]
 
 class ParticleFilter:
     def __init__(self, params):
@@ -68,6 +68,10 @@ class ParticleFilter:
                 weights[i] *= lf(err, uncertainty)
         if np.sum(self.weights) == 0:
             weights = np.ones(self.N)
+        self.weights = weights / np.sum(weights)
+
+    def update_weights(self, weights):
+        weights = self.weights * weights
         self.weights = weights / np.sum(weights)
 
     def map_estimate(self):
