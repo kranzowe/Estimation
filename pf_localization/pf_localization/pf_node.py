@@ -93,9 +93,9 @@ class ParticleFilterNode(Node):
         self.lidar_sub = self.create_subscription(
             LaserScan, '/scan', self.lidar_callback, 10)
         self.imu_sub = self.create_subscription(
-            Vector3, 'imu/accel', self.imu_callback, 10)
+            Vector3, '/imu/accel', self.imu_callback, 10)
         self.gyro_sub = self.create_subscription(
-            Vector3, 'imu/gyro', self.gyro_callback, 10)
+            Vector3, '/imu/gyro', self.gyro_callback, 10)
         self.estimate_pub = self.create_publisher(
             Odometry, "/state_estimate", 10)
         
