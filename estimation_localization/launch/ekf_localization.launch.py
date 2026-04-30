@@ -38,6 +38,7 @@ def generate_launch_description():
 
     rplidar_launch_action = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(rplidar_launch),
+        condition=IfCondition(LaunchConfiguration('start_lidar')),
     )
 
     odom_tf_node = Node(
@@ -107,6 +108,11 @@ def generate_launch_description():
             'rviz_config',
             default_value=default_rviz,
             description='Full path to the RViz config file.',
+        ),
+        DeclareLaunchArgument(
+            'start_lidar',
+            default_value='true',
+            description='Bring up the rplidar driver. Set false if it is already running.',
         ),
         robot_state_publisher_node,
         rplidar_launch_action,
