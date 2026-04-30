@@ -13,6 +13,15 @@ class OdomTFPublisher(Node):
     def __init__(self):
         super().__init__('odom_tf_publisher')
 
+        self.declare_parameter('calibrate_at_startup', True)
+        self.declare_parameter('calibration_duration', 2.0)
+        self.declare_parameter('vx_sign', -1.0)
+        self.declare_parameter('gyro_sign', 1.0)
+        self.calibrate_at_startup = bool(self.get_parameter('calibrate_at_startup').value)
+        self.calibration_duration = float(self.get_parameter('calibration_duration').value)
+        self.vx_sign = float(self.get_parameter('vx_sign').value)
+        self.gyro_sign = float(self.get_parameter('gyro_sign').value)
+
         self.x = 0.0
         self.y = 0.0
         self.yaw = 0.0
@@ -21,6 +30,15 @@ class OdomTFPublisher(Node):
         self.vx = 0.0
         self.gyro_yaw_rate = 0.0
         self.have_gyro = False
+
+        # Stationary-bias calibration. While calibrating, vx/gyro stay at zero so
+        # a small standing offset can't push integrated odom to infinity.
+        self.vx_bias = 0.0
+        self.gyro_bias = 0.0
+        self._calib_vx_samples = []
+        self._calib_gyro_samples = []
+        self._calib_done = not self.calibrate_at_startup
+        self._calib_start_time = self.get_clock().now()
 
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -37,11 +55,43 @@ class OdomTFPublisher(Node):
         self.timer = self.create_timer(0.02, self.step)  # 50 Hz
 
     def ol_rates_cb(self, msg):
-        self.vx = -msg.linear.x
+        raw = float(msg.linear.x)
+        if not self._calib_done:
+            self._calib_vx_samples.append(raw)
+            self.vx = 0.0
+        else:
+            self.vx = self.vx_sign * (raw - self.vx_bias)
 
     def gyro_cb(self, msg):
-        self.gyro_yaw_rate = msg.z
+        raw = float(msg.z)
         self.have_gyro = True
+        if not self._calib_done:
+            self._calib_gyro_samples.append(raw)
+            self.gyro_yaw_rate = 0.0
+        else:
+            self.gyro_yaw_rate = self.gyro_sign * (raw - self.gyro_bias)
+
+    def _maybe_finalize_calibration(self, now):
+        if self._calib_done:
+            return
+        elapsed = (now.nanoseconds - self._calib_start_time.nanoseconds) * 1e-9
+        if elapsed < self.calibration_duration:
+            return
+        n_vx = len(self._calib_vx_samples)
+        n_gyro = len(self._calib_gyro_samples)
+        if n_vx > 0:
+            self.vx_bias = float(np.mean(self._calib_vx_samples))
+        if n_gyro > 0:
+            self.gyro_bias = float(np.mean(self._calib_gyro_samples))
+        self._calib_done = True
+        self._calib_vx_samples = []
+        self._calib_gyro_samples = []
+        self.get_logger().info(
+            f"Bias calibration done in {elapsed:.2f}s "
+            f"({n_vx} vx, {n_gyro} gyro samples). "
+            f"vx_bias={self.vx_bias:+.4f} m/s, "
+            f"gyro_bias={np.degrees(self.gyro_bias):+.3f} deg/s"
+        )
 
     def step(self):
         now = self.get_clock().now()
@@ -52,6 +102,8 @@ class OdomTFPublisher(Node):
 
         if dt <= 0.0 or dt > 1.0:
             return
+
+        self._maybe_finalize_calibration(now)
 
         # Prefer measured gyro yaw rate over commanded; fall back if gyro missing.
         vyaw = self.gyro_yaw_rate if self.have_gyro else 0.0

@@ -38,3 +38,17 @@ ekf_localization:
 
     # Predict-step rate (Hz).
     predict_rate: 50.0
+
+    # Stationary bias calibration. Average the first `calibration_duration`
+    # seconds of /ol_rates.linear.x and /imu/gyro.z while the robot is at rest,
+    # then subtract those means from all future readings. Keeps the predict
+    # step from running to infinity on a small standing offset.
+    # KEEP THE ROBOT STILL FOR THE FIRST FEW SECONDS AFTER LAUNCH.
+    calibrate_at_startup: true
+    calibration_duration: 2.0
+
+    # Sign convention for the body-frame velocity / yaw rate. Flip to -1.0 if
+    # driving forward makes the estimate go backward (or rotation goes the
+    # wrong way). Bias is computed from the raw signal, then sign is applied.
+    vx_sign: -1.0
+    gyro_sign: 1.0

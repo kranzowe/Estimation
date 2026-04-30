@@ -159,6 +159,10 @@ class EKFLocalization(Node):
         self.declare_parameter('predict_rate', 50.0)
         self.declare_parameter('publish_debug_viz', True)
         self.declare_parameter('trajectory_max_len', 2000)
+        self.declare_parameter('calibrate_at_startup', True)
+        self.declare_parameter('calibration_duration', 2.0)
+        self.declare_parameter('vx_sign', -1.0)
+        self.declare_parameter('gyro_sign', 1.0)
 
         map_yaml = self.get_parameter('map_yaml').get_parameter_value().string_value
         if not map_yaml:
@@ -193,6 +197,19 @@ class EKFLocalization(Node):
         self.vx = 0.0
         self.gyro_yaw_rate = 0.0
         self.have_gyro = False
+
+        # Stationary-bias calibration. While calibrating, vx/gyro are forced to
+        # zero so the predict step doesn't integrate the raw biased reading.
+        self.calibrate_at_startup = bool(self.get_parameter('calibrate_at_startup').value)
+        self.calibration_duration = float(self.get_parameter('calibration_duration').value)
+        self.vx_sign = float(self.get_parameter('vx_sign').value)
+        self.gyro_sign = float(self.get_parameter('gyro_sign').value)
+        self.vx_bias = 0.0
+        self.gyro_bias = 0.0
+        self._calib_vx_samples = []
+        self._calib_gyro_samples = []
+        self._calib_done = not self.calibrate_at_startup
+        self._calib_start_time = self.get_clock().now()
 
         self.lock = threading.Lock()
         self.last_predict_time = self.get_clock().now()
@@ -264,13 +281,23 @@ class EKFLocalization(Node):
     # ---- callbacks ---------------------------------------------------------
 
     def ol_rates_cb(self, msg):
+        raw = float(msg.linear.x)
         with self.lock:
-            self.vx = -msg.linear.x
+            if not self._calib_done:
+                self._calib_vx_samples.append(raw)
+                self.vx = 0.0
+            else:
+                self.vx = self.vx_sign * (raw - self.vx_bias)
 
     def gyro_cb(self, msg):
+        raw = float(msg.z)
         with self.lock:
-            self.gyro_yaw_rate = msg.z
             self.have_gyro = True
+            if not self._calib_done:
+                self._calib_gyro_samples.append(raw)
+                self.gyro_yaw_rate = 0.0
+            else:
+                self.gyro_yaw_rate = self.gyro_sign * (raw - self.gyro_bias)
 
     def initialpose_cb(self, msg):
         """Re-seed EKF state + covariance from RViz "2D Pose Estimate"."""
@@ -357,6 +384,8 @@ class EKFLocalization(Node):
         if dt <= 0.0 or dt > 1.0:
             return
 
+        self._maybe_finalize_calibration(now)
+
         with self.lock:
             v = self.vx
             w = self.gyro_yaw_rate if self.have_gyro else 0.0
@@ -367,6 +396,30 @@ class EKFLocalization(Node):
             self.publish_map_to_odom_tf(now.to_msg())
             if self.publish_debug_viz:
                 self._publish_covariance_ellipse(now.to_msg())
+
+    def _maybe_finalize_calibration(self, now):
+        """If the calibration window has elapsed, lock in the bias means."""
+        if self._calib_done:
+            return
+        elapsed = (now.nanoseconds - self._calib_start_time.nanoseconds) * 1e-9
+        if elapsed < self.calibration_duration:
+            return
+        with self.lock:
+            n_vx = len(self._calib_vx_samples)
+            n_gyro = len(self._calib_gyro_samples)
+            if n_vx > 0:
+                self.vx_bias = float(np.mean(self._calib_vx_samples))
+            if n_gyro > 0:
+                self.gyro_bias = float(np.mean(self._calib_gyro_samples))
+            self._calib_done = True
+            self._calib_vx_samples = []
+            self._calib_gyro_samples = []
+        self.get_logger().info(
+            f"Bias calibration done in {elapsed:.2f}s "
+            f"({n_vx} vx, {n_gyro} gyro samples). "
+            f"vx_bias={self.vx_bias:+.4f} m/s, "
+            f"gyro_bias={math.degrees(self.gyro_bias):+.3f} deg/s"
+        )
 
     # ---- TF / publishing helpers -------------------------------------------
 
