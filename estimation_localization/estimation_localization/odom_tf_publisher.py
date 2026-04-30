@@ -37,7 +37,7 @@ class OdomTFPublisher(Node):
         self.timer = self.create_timer(0.02, self.step)  # 50 Hz
 
     def ol_rates_cb(self, msg):
-        self.vx = msg.linear.x
+        self.vx = -msg.linear.x
 
     def gyro_cb(self, msg):
         self.gyro_yaw_rate = msg.z

@@ -265,7 +265,7 @@ class EKFLocalization(Node):
 
     def ol_rates_cb(self, msg):
         with self.lock:
-            self.vx = msg.linear.x
+            self.vx = -msg.linear.x
 
     def gyro_cb(self, msg):
         with self.lock:
