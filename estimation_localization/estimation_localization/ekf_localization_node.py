@@ -150,7 +150,7 @@ class EKFLocalization(Node):
         self.declare_parameter('icp_max_iters', 15)
         self.declare_parameter('icp_max_corr_dist', 0.5)
         self.declare_parameter('icp_residual_reject', 0.30)
-        self.declare_parameter('scan_stride', 4)
+        self.declare_parameter('scan_stride', 2)
         self.declare_parameter('scan_min_range', 0.20)
         self.declare_parameter('scan_max_range', 12.0)
         self.declare_parameter('odom_frame', 'odom')
