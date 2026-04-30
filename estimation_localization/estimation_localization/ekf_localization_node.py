@@ -369,7 +369,7 @@ class EKFLocalization(Node):
             self.state, self.P = ekf_update(
                 self.state, self.P, (x_icp, y_icp, t_icp), self.r_xy, self.r_yaw)
             self.publish_pose(msg.header.stamp)
-            self.publish_map_to_odom_tf(msg.header.stamp)
+            self.publish_map_to_odom_tf(self.get_clock().now().to_msg())
             if self.publish_debug_viz:
                 self._publish_debug_after_update(msg.header.stamp, src_pairs, dst_pairs)
 
