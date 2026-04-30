@@ -2,7 +2,7 @@
 import rclpy
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
-from geometry_msgs.msg import Twist, TransformStamped
+from geometry_msgs.msg import Twist, TransformStamped, Vector3
 from nav_msgs.msg import Odometry
 from tf2_ros import TransformBroadcaster
 import numpy as np
@@ -18,6 +18,10 @@ class OdomTFPublisher(Node):
         self.yaw = 0.0
         self.last_time = self.get_clock().now()
 
+        self.vx = 0.0
+        self.gyro_yaw_rate = 0.0
+        self.have_gyro = False
+
         sensor_qos = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             durability=DurabilityPolicy.VOLATILE,
@@ -27,8 +31,19 @@ class OdomTFPublisher(Node):
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_pub = self.create_publisher(Odometry, 'odom', 10)
         self.create_subscription(Twist, '/ol_rates', self.ol_rates_cb, sensor_qos)
+        self.create_subscription(Vector3, '/imu/gyro', self.gyro_cb, sensor_qos)
+
+        # Integrate at a fixed rate so gyro updates between /ol_rates messages still tick yaw forward.
+        self.timer = self.create_timer(0.02, self.step)  # 50 Hz
 
     def ol_rates_cb(self, msg):
+        self.vx = msg.linear.x
+
+    def gyro_cb(self, msg):
+        self.gyro_yaw_rate = msg.z
+        self.have_gyro = True
+
+    def step(self):
         now = self.get_clock().now()
         last_s = self.last_time.seconds_nanoseconds()
         now_s = now.seconds_nanoseconds()
@@ -38,8 +53,9 @@ class OdomTFPublisher(Node):
         if dt <= 0.0 or dt > 1.0:
             return
 
-        vx = msg.linear.x
-        vyaw = msg.angular.z
+        # Prefer measured gyro yaw rate over commanded; fall back if gyro missing.
+        vyaw = self.gyro_yaw_rate if self.have_gyro else 0.0
+        vx = self.vx
 
         self.yaw += vyaw * dt
         self.x += vx * np.cos(self.yaw) * dt
@@ -47,7 +63,6 @@ class OdomTFPublisher(Node):
 
         quat = Rotation.from_euler('z', self.yaw).as_quat()
 
-        # Publish odom topic
         odom = Odometry()
         odom.header.stamp = now.to_msg()
         odom.header.frame_id = 'odom'
@@ -62,7 +77,6 @@ class OdomTFPublisher(Node):
         odom.twist.twist.angular.z = vyaw
         self.odom_pub.publish(odom)
 
-        # Broadcast odom → base_link TF (required by slam_toolbox)
         t = TransformStamped()
         t.header.stamp = now.to_msg()
         t.header.frame_id = 'odom'
