@@ -147,9 +147,9 @@ class EKFLocalization(Node):
         self.declare_parameter('r_xy', 0.05)
         self.declare_parameter('r_yaw', 0.03)
         self.declare_parameter('icp_max_iters', 15)
-        self.declare_parameter('icp_max_corr_dist', 0.8)
-        self.declare_parameter('icp_residual_reject', 0.50)
-        self.declare_parameter('scan_stride', 2)
+        self.declare_parameter('icp_max_corr_dist', 0.5)
+        self.declare_parameter('icp_residual_reject', 0.30)
+        self.declare_parameter('scan_stride', 4)
         self.declare_parameter('scan_min_range', 0.20)
         self.declare_parameter('scan_max_range', 12.0)
         self.declare_parameter('odom_frame', 'odom')
@@ -163,6 +163,14 @@ class EKFLocalization(Node):
         self.declare_parameter('calibration_duration', 2.0)
         self.declare_parameter('vx_sign', -1.0)
         self.declare_parameter('gyro_sign', 1.0)
+        # Lost-localization recovery.
+        self.declare_parameter('recovery_enable', True)
+        self.declare_parameter('recovery_reject_count', 5)
+        self.declare_parameter('recovery_success_count', 5)
+        self.declare_parameter('recovery_stop_throttle', 1500.0)
+        self.declare_parameter('recovery_inflate_xy', 1.0)
+        self.declare_parameter('recovery_inflate_yaw_deg', 30.0)
+        self.declare_parameter('recovery_cmd_topic', '/cmd_vel')
 
         map_yaml = self.get_parameter('map_yaml').get_parameter_value().string_value
         if not map_yaml:
@@ -211,6 +219,18 @@ class EKFLocalization(Node):
         self._calib_done = not self.calibrate_at_startup
         self._calib_start_time = self.get_clock().now()
 
+        # Lost-localization recovery state.
+        self.recovery_enable = bool(self.get_parameter('recovery_enable').value)
+        self.recovery_reject_count = int(self.get_parameter('recovery_reject_count').value)
+        self.recovery_success_count = int(self.get_parameter('recovery_success_count').value)
+        self.recovery_stop_throttle = float(self.get_parameter('recovery_stop_throttle').value)
+        self.recovery_inflate_xy = float(self.get_parameter('recovery_inflate_xy').value)
+        self.recovery_inflate_yaw_deg = float(self.get_parameter('recovery_inflate_yaw_deg').value)
+        recovery_cmd_topic = self.get_parameter('recovery_cmd_topic').get_parameter_value().string_value
+        self._consecutive_rejects = 0
+        self._consecutive_successes = 0
+        self._in_recovery = False
+
         self.lock = threading.Lock()
         self.last_predict_time = self.get_clock().now()
         self.trajectory = []
@@ -251,6 +271,7 @@ class EKFLocalization(Node):
             self.initialpose_cb, initialpose_qos)
 
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
+        self.cmd_pub = self.create_publisher(Twist, recovery_cmd_topic, 10)
 
         # Debug / visualization publishers.
         self.map_cloud_pub = self.create_publisher(
@@ -271,6 +292,7 @@ class EKFLocalization(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         self.predict_timer = self.create_timer(1.0 / predict_rate, self.predict_step)
+        self.recovery_timer = self.create_timer(0.1, self._publish_stop_if_recovering)
         self._warned_no_laser_tf = False
 
         # Latch the map cloud so RViz picks it up whenever it (re)connects.
@@ -363,6 +385,7 @@ class EKFLocalization(Node):
             self.get_logger().warn(
                 f"ICP residual {residual:.3f} > {self.icp_residual_reject:.3f}; rejecting update."
             )
+            self._on_icp_rejected()
             return
 
         with self.lock:
@@ -372,6 +395,8 @@ class EKFLocalization(Node):
             self.publish_map_to_odom_tf(self.get_clock().now().to_msg())
             if self.publish_debug_viz:
                 self._publish_debug_after_update(msg.header.stamp, src_pairs, dst_pairs)
+
+        self._on_icp_accepted()
 
     # ---- EKF steps (thin wrappers around pure functions) -------------------
 
@@ -396,6 +421,59 @@ class EKFLocalization(Node):
             self.publish_map_to_odom_tf(now.to_msg())
             if self.publish_debug_viz:
                 self._publish_covariance_ellipse(now.to_msg())
+
+    # ---- lost-localization recovery ----------------------------------------
+
+    def _on_icp_rejected(self):
+        if not self.recovery_enable:
+            return
+        self._consecutive_successes = 0
+        self._consecutive_rejects += 1
+        if not self._in_recovery and self._consecutive_rejects >= self.recovery_reject_count:
+            self._enter_recovery()
+
+    def _on_icp_accepted(self):
+        if not self.recovery_enable:
+            return
+        self._consecutive_rejects = 0
+        self._consecutive_successes += 1
+        if self._in_recovery and self._consecutive_successes >= self.recovery_success_count:
+            self._exit_recovery()
+
+    def _enter_recovery(self):
+        """Stop the car, re-arm bias calibration, inflate covariance."""
+        self.get_logger().warn(
+            f"Localization lost ({self._consecutive_rejects} consecutive ICP rejections). "
+            f"Stopping car, re-calibrating bias, inflating covariance."
+        )
+        self._in_recovery = True
+        with self.lock:
+            # Re-arm calibration: vx/gyro will be held at 0 for the duration,
+            # then biases re-estimated from the new stationary samples.
+            self._calib_done = False
+            self._calib_vx_samples = []
+            self._calib_gyro_samples = []
+            self._calib_start_time = self.get_clock().now()
+            self.P = np.diag([
+                self.recovery_inflate_xy ** 2,
+                self.recovery_inflate_xy ** 2,
+                math.radians(self.recovery_inflate_yaw_deg) ** 2,
+            ])
+
+    def _exit_recovery(self):
+        self.get_logger().info(
+            f"Localization recovered ({self._consecutive_successes} consecutive good ICP updates). "
+            f"Releasing stop command."
+        )
+        self._in_recovery = False
+
+    def _publish_stop_if_recovering(self):
+        if not self._in_recovery:
+            return
+        twist = Twist()
+        twist.linear.x = self.recovery_stop_throttle
+        twist.angular.z = 0.0
+        self.cmd_pub.publish(twist)
 
     def _maybe_finalize_calibration(self, now):
         """If the calibration window has elapsed, lock in the bias means."""

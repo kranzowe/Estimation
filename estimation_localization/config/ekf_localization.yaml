@@ -52,3 +52,15 @@ ekf_localization:
     # wrong way). Bias is computed from the raw signal, then sign is applied.
     vx_sign: -1.0
     gyro_sign: 1.0
+
+    # Lost-localization recovery. If ICP rejects N consecutive scans, publish a
+    # stop command on `recovery_cmd_topic`, re-run bias calibration, and inflate
+    # covariance so subsequent ICP updates snap the state hard. Exit once N
+    # consecutive ICP updates land below the residual threshold again.
+    recovery_enable: true
+    recovery_reject_count: 5         # consecutive rejects before triggering
+    recovery_success_count: 5        # consecutive accepts before exiting
+    recovery_stop_throttle: 1500.0   # neutral PWM in this stack's cmd_vel convention
+    recovery_inflate_xy: 1.0         # m, 1-sigma after recovery trigger
+    recovery_inflate_yaw_deg: 30.0   # deg, 1-sigma after recovery trigger
+    recovery_cmd_topic: "/cmd_vel"
