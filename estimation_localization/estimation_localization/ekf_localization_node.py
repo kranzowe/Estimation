@@ -32,7 +32,8 @@ from estimation_localization.core import (ekf_predict, ekf_update, icp_se2,
                                           load_occupancy_pointcloud,
                                           se2_from_xyt, wrap_angle,
                                           xyt_from_se2)
-
+from rclpy.parameter import Parameter
+from rclpy.node import ParameterNotDeclaredException
 
 # =============================================================================
 # RViz visualization helpers (depend on ROS messages but not on Node state).
@@ -446,6 +447,12 @@ class EKFLocalization(Node):
             f"Localization lost ({self._consecutive_rejects} consecutive ICP rejections). "
             f"Stopping car, re-calibrating bias, inflating covariance."
         )
+        # Store previous speed and set to 0
+        if self._ol_speed_prev is None:
+            # Try to get the current value from the parameter server
+            # (You may need to implement a parameter client to fetch from lidar_bug)
+            self._ol_speed_prev = 100  # Default/fallback value
+        self._set_ol_speed(0)
         self._in_recovery = True
         with self.lock:
             # Re-arm calibration: vx/gyro will be held at 0 for the duration,
@@ -465,15 +472,15 @@ class EKFLocalization(Node):
             f"Localization recovered ({self._consecutive_successes} consecutive good ICP updates). "
             f"Releasing stop command."
         )
+        # Restore previous speed
+        if self._ol_speed_prev is not None:
+            self._set_ol_speed(self._ol_speed_prev)
+            self._ol_speed_prev = None
         self._in_recovery = False
 
     def _publish_stop_if_recovering(self):
-        if not self._in_recovery:
-            return
-        twist = Twist()
-        twist.linear.x = self.recovery_stop_throttle
-        twist.angular.z = 0.0
-        self.cmd_pub.publish(twist)
+        # No longer needed to publish Twist, since we're controlling via param
+        pass
 
     def _maybe_finalize_calibration(self, now):
         """If the calibration window has elapsed, lock in the bias means."""
@@ -509,7 +516,8 @@ class EKFLocalization(Node):
             if not self._warned_no_laser_tf:
                 self.get_logger().warn(
                     f"TF {self.base_frame}<-{self.laser_frame} unavailable ({e}); "
-                    f"assuming identity. (suppressing further warnings)")
+                    f"assuming identity. (suppressing further warnings)"
+                )
                 self._warned_no_laser_tf = True
             return scan_xy_laser
 
