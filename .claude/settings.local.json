@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest test/test_se2.py test/test_icp.py test/test_ekf.py test/test_map_loader.py -v)"
+    ]
+  }
+}

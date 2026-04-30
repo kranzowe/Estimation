@@ -42,7 +42,7 @@ def transform_points(pts, x, y, theta):
 
 def icp_se2(scan_pts, map_kdtree, init_xyt, max_iters=15,
             max_corr_dist=0.5, tol_trans=1e-3, tol_rot=1e-3,
-            return_correspondences=False):
+            min_correspondences=20, return_correspondences=False):
     """
     Point-to-point ICP in SE(2).
 
@@ -50,12 +50,20 @@ def icp_se2(scan_pts, map_kdtree, init_xyt, max_iters=15,
             (x, y, theta, mean_residual, src_pts_in_map, dst_pts_in_map)
     if return_correspondences=True.
 
+    The reported `mean_residual` is the mean nearest-neighbor distance across
+    *all* scan points at the final pose (no upper bound). This is always finite
+    and reflects how well the scan actually aligns with the map — a useful
+    diagnostic even when ICP fails to converge. Internal iteration uses the
+    bounded query (max_corr_dist) for convergence; if fewer than
+    `min_correspondences` scan points fall within `max_corr_dist`, ICP aborts
+    early without updating the pose, and the returned residual will be large
+    (telling you the initial pose is too far from the map).
+
     scan_pts: (N, 2) in robot frame.
     map_kdtree: scipy.spatial.cKDTree built over (M, 2) occupied map points.
     init_xyt: (x, y, theta) initial guess, robot-in-map.
     """
     x, y, t = float(init_xyt[0]), float(init_xyt[1]), float(init_xyt[2])
-    last_residual = float('inf')
     src_v_last = np.zeros((0, 2))
     dst_v_last = np.zeros((0, 2))
 
@@ -67,12 +75,11 @@ def icp_se2(scan_pts, map_kdtree, init_xyt, max_iters=15,
 
         dists, idx = map_kdtree.query(src, k=1, distance_upper_bound=max_corr_dist)
         valid = np.isfinite(dists)
-        if valid.sum() < 20:
+        if valid.sum() < min_correspondences:
             break
 
         src_v = src[valid]
         dst_v = map_kdtree.data[idx[valid]]
-        last_residual = float(np.mean(dists[valid]))
         src_v_last = src_v
         dst_v_last = dst_v
 
@@ -97,9 +104,19 @@ def icp_se2(scan_pts, map_kdtree, init_xyt, max_iters=15,
             break
         t = wrap_angle(t_new)
 
+    # Final residual: unbounded mean nearest-neighbor distance over ALL scan
+    # points at the converged pose. Always finite, always informative.
+    c, s = math.cos(t), math.sin(t)
+    sx = c * scan_pts[:, 0] - s * scan_pts[:, 1] + x
+    sy = s * scan_pts[:, 0] + c * scan_pts[:, 1] + y
+    src_final = np.stack([sx, sy], axis=1)
+    all_dists, _ = map_kdtree.query(src_final, k=1)
+    finite = np.isfinite(all_dists)
+    mean_residual = float(np.mean(all_dists[finite])) if finite.any() else float('inf')
+
     if return_correspondences:
-        return x, y, t, last_residual, src_v_last, dst_v_last
-    return x, y, t, last_residual
+        return x, y, t, mean_residual, src_v_last, dst_v_last
+    return x, y, t, mean_residual
 
 
 def ekf_predict(state, P, v, w, dt, q_xy, q_yaw):

@@ -12,7 +12,7 @@ def generate_launch_description():
     localization_pkg = get_package_share_directory('estimation_localization')
     mapping_pkg = get_package_share_directory('estimation_mapping')
 
-    default_map = os.path.join(localization_pkg, 'maps', 'lab.yaml')
+    default_map = os.path.join(localization_pkg, 'maps', 'course11.yaml')
     ekf_params = os.path.join(localization_pkg, 'config', 'ekf_localization.yaml')
     lifecycle_params = os.path.join(localization_pkg, 'config', 'lifecycle_slam.yaml')
     default_rviz = os.path.join(localization_pkg, 'rviz', 'ekf_localization.rviz')

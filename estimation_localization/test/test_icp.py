@@ -145,13 +145,15 @@ class TestICPRobustness:
         assert math.isfinite(x) and math.isfinite(y) and math.isfinite(t)
 
     def test_residual_high_on_garbage_scan(self, room_kdtree):
-        # All points far outside the room — every nearest-neighbor distance
-        # will be capped by max_corr_dist and ICP will refuse to update.
+        # All points far outside the room. ICP refuses to update (no
+        # correspondences within max_corr_dist), but the final residual is
+        # computed unbounded so it's always finite — and large, telling the
+        # caller the scan is far from the map.
         garbage = np.random.RandomState(0).uniform(50.0, 60.0, size=(200, 2))
         x, y, t, residual = icp_se2(
             garbage, room_kdtree, (0.0, 0.0, 0.0), max_corr_dist=0.5)
-        # Either residual stays inf (no valid correspondences) or is large.
-        assert (not math.isfinite(residual)) or residual > 0.5
+        assert math.isfinite(residual)
+        assert residual > 0.5
 
     def test_idempotent_when_already_aligned(self, room_kdtree):
         # Run ICP twice from the same starting point — second run should be a no-op.

@@ -221,6 +221,18 @@ class EKFLocalization(Node):
         self.create_subscription(Vector3, '/imu/gyro', self.gyro_cb, sensor_qos)
         self.create_subscription(LaserScan, '/scan', self.scan_cb, sensor_qos)
 
+        # RViz "2D Pose Estimate" tool publishes here. Use a reliable QoS so
+        # we don't drop the single message that comes from each click.
+        initialpose_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped, '/initialpose',
+            self.initialpose_cb, initialpose_qos)
+
         self.pose_pub = self.create_publisher(PoseWithCovarianceStamped, '/ekf_pose', 10)
 
         # Debug / visualization publishers.
@@ -259,6 +271,29 @@ class EKFLocalization(Node):
         with self.lock:
             self.gyro_yaw_rate = msg.z
             self.have_gyro = True
+
+    def initialpose_cb(self, msg):
+        """Re-seed EKF state + covariance from RViz "2D Pose Estimate"."""
+        p = msg.pose.pose.position
+        q = msg.pose.pose.orientation
+        yaw = Rotation.from_quat([q.x, q.y, q.z, q.w]).as_euler('xyz')[2]
+
+        cov6 = np.asarray(msg.pose.covariance, dtype=np.float64).reshape(6, 6)
+        idx = np.array([0, 1, 5])
+        P_new = cov6[np.ix_(idx, idx)]
+        if not np.any(np.diag(P_new) > 1e-9):
+            P_new = np.diag([0.5**2, 0.5**2, math.radians(15.0)**2])
+
+        with self.lock:
+            self.state = np.array([float(p.x), float(p.y), wrap_angle(float(yaw))])
+            self.P = P_new
+            self.trajectory = []
+            self.last_predict_time = self.get_clock().now()
+
+        self.get_logger().info(
+            f"Re-seeded EKF from /initialpose: "
+            f"x={p.x:.3f}, y={p.y:.3f}, yaw_deg={math.degrees(yaw):.2f}"
+        )
 
     def scan_cb(self, msg):
         ranges = np.asarray(msg.ranges, dtype=np.float32)
